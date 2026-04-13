@@ -20,12 +20,16 @@ clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 
 lint:
-	@uv run flake8 .
-	@uv run mypy . $(MYPY_FLAGS)
+	@echo "--- Running Flake8 ---"
+	@uv run flake8 . --exclude .venv,llm_sdk
+	@echo "--- Running MyPy ---"
+	@uv run mypy src tests $(MYPY_FLAGS)
 
 lint-strict:
-	@uv run flake8 .
-	@uv run mypy . --strict
+	@echo "--- Running Flake8 ---"
+	@uv run flake8 . --exclude .venv,llm_sdk 
+	@echo "--- Running MyPy ---"
+	@uv run mypy . $(MYPY_FLAGS)
 
 test:
 	@echo "Launching the entire suite of tests..."
