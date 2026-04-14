@@ -1,8 +1,3 @@
-# genere le format JSON attendu ({
-# "prompt": "What is the sum of 2 and 3?",
-# "name": "fn_add_numbers",
-# "parameters": {"a": 2.0, "b": 3.0}
-# },)
 from typing import List
 from llm_sdk import Small_LLM_Model
 from src.models import FunctionDefinition, FunctionCallResult, UserPrompt
@@ -12,6 +7,25 @@ import json
 class Generator:
     def __init__(self, model_name: str = "Qwen/Qwen3-0.6B"):
         self.llm = Small_LLM_Model(model_name=model_name)
+        voca_path = self.llm.get_path_to_vocab_file()
+
+        with open(voca_path, mode='r', encoding='utf-8') as f:
+            raw_vocab = json.load(f)
+
+        # On crée un dictionnaire propre : { ID_ENTIER: "TEXTE_TOKEN" }
+        self.vocab = {}
+        for key, value in raw_vocab.items():
+            # On essaie de voir si la clé est l'ID (Cas 1) ou si la valeur est l'ID (Cas 2)
+            try:
+                # Si key est l'ID (ex: "123": "token")
+                v_id = int(key)
+                v_token = str(value)
+            except ValueError:
+                # Si c'est la valeur qui est l'ID (ex: "token": 123)
+                v_id = int(value)
+                v_token = str(key)
+            
+            self.vocab[v_id] = v_token
 
     def _build_full_prompt(self,
                            prompt_data: UserPrompt,
@@ -28,15 +42,26 @@ class Generator:
             tools_desc += f"  Parameters: {f.parameters}\n\n"
 
         system_prompt = (
-            "You are a helpful assistant that only responds "
-            "with JSON function calls.\n"
-            "You must use one of these available functions:\n"
-            f"{tools_desc}"
-            "Output ONLY a JSON object with this exact structure:\n"
-            '{"prompt": "original prompt", '
-            '"name": "function_name", "parameters": {"arg": value}}\n'
-            "No conversational text. No explanation. "
-            "No text before or after the JSON."
+            "### INSTRUCTIONS\n"
+            "You are a specialized function-calling engine. Your ONLY task is to map user queries to specific JSON tool calls.\n"
+            "STRICT RULE: You must output valid JSON and NOTHING ELSE. No thinking, no intro, no outro.\n\n"
+            
+            "### AVAILABLE FUNCTIONS\n"
+            "You must choose one function from this list based on the user's need:\n"
+            f"{tools_desc}\n"
+            
+            "### OUTPUT FORMAT\n"
+            "Your response must follow this EXACT schema:\n"
+            "{\n"
+            '  "prompt": "The exact user query",\n'
+            '  "name": "function_name",\n'
+            '  "parameters": {"param_name": value}\n'
+            "}\n\n"
+            
+            "### CRITICAL CONSTRAINTS\n"
+            "- Never include <think> tags.\n"
+            "- Never explain your choice.\n"
+            "- If no function matches, use the most relevant one or a generic fallback if provided."
         )
 
         full_prompt = (
@@ -56,64 +81,64 @@ class Generator:
         input_ids = self.llm.encode(prompt_str).tolist()[0]
 
         generated_tokens = []
-        for _ in range(200): # Sécurité : max 200 tokens pour éviter l'infini
-            # On concatène le prompt original et ce qu'on a déjà généré
+        for _ in range(100): # Sécurité : max 200 tokens pour éviter l'infini
             current_sequence = input_ids + generated_tokens
             
-            # Le SDK nous donne les scores de probabilité (logits) pour le token suivant
             logits = self.llm.get_logits_from_input_ids(current_sequence)
             
-            # --- C'est ici que tu devras filtrer les logits plus tard ---
-            # Pour l'instant, on prend simplement le plus probable (le plus gros score)
+            current_text = self.llm.decode(generated_tokens)
+            logits = self._apply_constraints(logits, current_text, functions)
             next_token_id = logits.index(max(logits))
-            
-            # Si le modèle génère le token "End Of String", il a fini sa phrase
             if next_token_id == self.llm._tokenizer.eos_token_id:
                 break
                 
             generated_tokens.append(next_token_id)
 
-        # 3. Finalisation
-        # On transforme la liste de nombres en texte JSON
         raw_json_str = self.llm.decode(generated_tokens)
 
-        #à protéger
-        data_dict = json.loads(raw_json_str)
-        return data_dict
-
-            
-        #     # 3. On crée l'objet Pydantic à partir du dictionnaire
-        #     # Le **data_dict "déballe" les clés pour remplir les champs de la classe
-        #     return FunctionCallResult(**data_dict)
-            
-        # except (json.JSONDecodeError, ValueError) as e:
-        #     # Si l'IA a mal écrit le JSON ou s'il manque des champs Pydantic
-        #     # On peut soit lever une erreur, soit gérer un cas de repli
-        #     print(f"Erreur de parsing : {e}")
-        #     raise
+        return self._parse_and_validate(raw_json_str, prompt_data.prompt)
 
 
-        # On transforme ce texte en objet Pydantic (FunctionCallResult)
-        # return self._parse_result(raw_json_str, prompt_data.prompt)
 
 
-# Étapes : 1. Appeler _build_system_prompt.
-# 2. Transformer le texte en IDs avec self.llm.encode().
-# 3. Lancer la boucle while ou for de génération.
-# 4. Appeler _apply_constraints à chaque tour.
-        pass
+    def _apply_constraints(self, logits: List[float], current_text: str, functions: List[FunctionDefinition]) -> List[float]:
+        def _apply_constraints(self, logits: List[float], current_text: str, functions: List[FunctionDefinition]) -> List[float]:
+        if not current_text.strip():
+            new_logits = [-1e10] * len(logits)
 
-    def _apply_constraints(logits: List[float], current_text: str, functions: List[FunctionDefinition]) -> List[float]:
-        pass
-# Rôle : Le filtre de sécurité.Détail : Analyse le texte déjà généré (current_text).
-# Si on vient d'écrire "name": ", cette fonction doit mettre à $-\infty$ tous les tokens qui ne sont pas des noms de fonctions valides.
+            for token_id, token_content in self.vocab.items():
+                # On vérifie si l'ID est bien dans la plage des logits (sécurité)
+                if token_id < len(logits):
+                    if token_content.strip().startswith('{'):
+                        new_logits[token_id] = logits[token_id]
 
+            return new_logits
+
+        return logits
+
+    
     def _clean_output(raw_output: str) -> str:
         pass
 # Rôle : Nettoyage de secours.
 # Détail : Supprimer les espaces inutiles ou les caractères de fin de chaîne que le LLM aurait pu ajouter malgré la contrainte.
 
-    def _parse_and_validate(json_str: str, original_prompt: str) -> FunctionCallResult:
-        pass
-# Rôle : La preuve par Pydantic.
-# Détail : Utiliser json.loads() puis passer le dictionnaire à ton modèle FunctionCallResult(**data). Si ça plante ici, c'est que ta Phase 2 n'était pas assez stricte !
+    def _parse_and_validate(self, json_str: str, original_prompt: str) -> FunctionCallResult:
+        # DEBUG : Affiche ce que l'IA a vraiment écrit
+        print(f"\n--- DEBUG RAW OUTPUT ---\n'{json_str}'\n-----------------------")
+        
+        if not json_str.strip():
+            raise ValueError("L'IA n'a rien généré du tout (chaîne vide).")
+
+        try:
+            # On essaie de trouver le JSON si l'IA a mis du texte avant/après
+            start = json_str.find('{')
+            end = json_str.rfind('}') + 1
+            if start != -1 and end != 0:
+                json_str = json_str[start:end]
+
+            data = json.loads(json_str)
+            data["prompt"] = original_prompt
+            return FunctionCallResult(**data)
+        except Exception as e:
+            # On affiche l'erreur ET le contenu problématique
+            raise ValueError(f"Echec du parsing. Contenu reçu: {json_str} | Erreur: {e}")

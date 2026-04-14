@@ -1,38 +1,41 @@
 # import argparse
 import sys
 from src.load import Loader
-# from src.models import FunctionDefinition
 from src.generator import Generator
 
-
 def main() -> None:
+    loader = Loader()
 
+    # 1. Chargement des données
     try:
-        loader = Loader()
-
-        functions = loader.get_functions(
-            "data/input/functions_definition.json"
-            )
-        prompts = loader.get_prompts(
-            "data/input/function_calling_tests.json"
-            )
-
-        for fn in functions:
-            print(fn)
-        for pr in prompts:
-            print(pr)
+        functions = loader.get_functions("data/input/functions_definition.json")
+        prompts = loader.get_prompts("data/input/function_calling_tests.json")
+        print(f"\033[94m[INFO]\033[0m Données chargées : {len(functions)} fonctions, {len(prompts)} tests.")
     except Exception as e:
-        print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr)
+        print(f"\033[91m[ERROR Loader]\033[0m {e}", file=sys.stderr)
         sys.exit(1)
 
+    # 2. Initialisation du modèle (Une seule fois !)
     try:
+        print("\033[94m[INFO]\033[0m Chargement du modèle LLM en cours...")
         generator = Generator()
-        function_call_result = generator.generate(prompts, functions)
-        print(function_call_result)
     except Exception as e:
-        print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr)
+        print(f"\033[91m[ERROR Model]\033[0m {e}", file=sys.stderr)
         sys.exit(1)
 
+    # 3. Test de génération sur le PREMIER prompt uniquement
+    if prompts:
+        try:
+            print(f"\n\033[94m[EXECUTION]\033[0m Test sur : {prompts[0].prompt}")
+            result = generator.generate(prompts[0], functions)
+            
+            print(f"\n\033[92m[RESULTAT FINAL]\033[0m\n{result}")
+        except Exception as e:
+            # Ici, l'erreur de parsing JSON sera capturée sans faire crash le PC
+            print(f"\n\033[93m[WARNING Generation]\033[0m {e}")
+
+if __name__ == "__main__":
+    main()
 
 
     # 1. Configuration des arguments
