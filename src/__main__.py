@@ -2,7 +2,7 @@
 import sys
 from src.load import Loader
 # from src.models import FunctionDefinition
-# from src.generator import Generator
+from src.generator import Generator
 
 
 def main() -> None:
@@ -24,6 +24,16 @@ def main() -> None:
     except Exception as e:
         print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr)
         sys.exit(1)
+
+    try:
+        generator = Generator()
+        function_call_result = generator.generate(prompts, functions)
+        print(function_call_result)
+    except Exception as e:
+        print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 
     # 1. Configuration des arguments
     # avec argparse
