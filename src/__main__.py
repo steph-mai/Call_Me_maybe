@@ -1,31 +1,44 @@
 # import argparse
 import sys
 from src.load import Loader
+# from src.models import FunctionDefinition
 # from src.generator import Generator
 
 
-def main():
-    loader = Loader()
+def main() -> None:
 
     try:
-        data = loader.load_file("data/input/functions_definition.json")
-        print(data)
+        loader = Loader()
+
+        functions = loader.get_functions(
+            "data/input/functions_definition.json"
+            )
+        prompts = loader.get_prompts(
+            "data/input/function_calling_tests.json"
+            )
+
+        for fn in functions:
+            print(fn)
+        for pr in prompts:
+            print(pr)
     except Exception as e:
         print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr)
         sys.exit(1)
+
     # 1. Configuration des arguments
     # avec argparse
-    # parser = argparse.ArgumentParser(description="LLM Function Calling Program")
-    
-    # parser.add_argument("--functions_definition", 
+    # parser = argparse.ArgumentParser
+    # (description="LLM Function Calling Program")
+
+    # parser.add_argument("--functions_definition",
     #                     default="data/definitions.json", # Chemin par défaut
     #                     help="Path to functions definition JSON")
-    
-    # parser.add_argument("--input", 
+
+    # parser.add_argument("--input",
     #                     default="data/input/", # Dossier par défaut
     #                     help="Path to input JSON or directory")
-    
-    # parser.add_argument("--output", 
+
+    # parser.add_argument("--output",
     #                     default="data/output/", # Dossier par défaut
     #                     help="Path to output directory or file")
 
@@ -33,9 +46,11 @@ def main():
 
     # # 2. Orchestration
     # print(f"Lancement avec l'entrée : {args.input}")
-    
-    # # Ici tu appelleras ton Loader avec args.input, args.functions_definition, etc.
+
+    # # Ici tu appelleras ton Loader avec args.input, args.
+    # functions_definition, etc.
     # # Puis ton Generator...
-    
+
+
 if __name__ == "__main__":
     main()

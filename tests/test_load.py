@@ -2,11 +2,11 @@ import pytest
 import json
 from src.load import Loader
 
-# --- Tests de succès ---
+# --- SUCCESS TESTS ---
 
 
-def test_load_valid_json(tmp_path):
-    """Vérifie le chargement normal d'un fichier valide."""
+def test_load_valid_json(tmp_path) -> None:
+    """Ensure the loading of a valid file."""
     d = tmp_path / "test.json"
     content = {"query": "Hello"}
     d.write_text(json.dumps(content))
@@ -14,19 +14,19 @@ def test_load_valid_json(tmp_path):
     loader = Loader()
     assert loader.load_file(str(d)) == content
 
-# --- Tests d'erreurs ---
+# --- FAILURE TESTS ---
 
 
-def test_load_missing_file():
-    """Vérifie l'erreur quand le fichier n'existe pas."""
+def test_load_missing_file() -> None:
+    """Ensure an error is raised if file not found."""
     loader = Loader()
     with pytest.raises(FileNotFoundError) as excinfo:
         loader.load_file("missing_file.json")
     assert "not found" in str(excinfo.value)
 
 
-def test_load_invalid_json_content(tmp_path):
-    """Vérifie l'erreur quand le contenu JSON est mal formé."""
+def test_load_invalid_json_content(tmp_path) -> None:
+    """Ensure an error is raised with invalid json."""
     d = tmp_path / "corrupted.json"
     d.write_text('{ "prompt": "test" ')
     loader = Loader()
@@ -35,8 +35,8 @@ def test_load_invalid_json_content(tmp_path):
     assert "Invalid JSON" in str(excinfo.value)
 
 
-def test_load_empty_file(tmp_path):
-    """Vérifie l'erreur quand le fichier est totalement vide."""
+def test_load_empty_file(tmp_path) -> None:
+    """Verify that en empty file is rejected."""
     d = tmp_path / "empty.json"
     d.write_text("")
 
@@ -45,8 +45,8 @@ def test_load_empty_file(tmp_path):
         loader.load_file(str(d))
 
 
-def test_load_permission_denied(tmp_path):
-    """Vérifie l'erreur quand le fichier est protégé en lecture."""
+def test_load_permission_denied(tmp_path) -> None:
+    """Ensure an error is raised if there is no permission file."""
     d = tmp_path / "protected.json"
     d.write_text('{"secret": "data"}')
     d.chmod(0o000)
