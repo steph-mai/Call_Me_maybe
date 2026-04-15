@@ -31,7 +31,6 @@ def main() -> None:
             
             print(f"\n\033[92m[RESULTAT FINAL]\033[0m\n{result}")
         except Exception as e:
-            # Ici, l'erreur de parsing JSON sera capturée sans faire crash le PC
             print(f"\n\033[93m[WARNING Generation]\033[0m {e}")
 
 if __name__ == "__main__":
@@ -63,7 +62,3 @@ if __name__ == "__main__":
     # # Ici tu appelleras ton Loader avec args.input, args.
     # functions_definition, etc.
     # # Puis ton Generator...
-
-
-if __name__ == "__main__":
-    main()
