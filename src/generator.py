@@ -30,10 +30,10 @@ class Generator:
                 v_id = int(value)
                 v_token = str(key)
             vocab[v_id] = v_token
-            if not vocab:
-                raise ValueError(
-                    "Empty vocabulary. Check your vocabulary file"
-                    )
+        if not vocab:
+            raise ValueError(
+                "Empty vocabulary. Check your vocabulary file"
+                )
         self.logits_processor = JSONLogitsProcessor(vocab)
         self.prompt_builder = PromptBuilder()
         self.output_parser = OutputParser()
@@ -68,9 +68,15 @@ class Generator:
                 logits,
                 current_text
                 )
-            next_token_id = logits.index(max(logits))
+            max_score = max(logits)
+            if max_score <= -1e10:
+                raise RuntimeError("Dead-end reached: The constraints filtered out ALL possible tokens.")
+
+            next_token_id = logits.index(max_score)
+
             if next_token_id == self.llm._tokenizer.eos_token_id:
                 break
+
             generated_tokens.append(next_token_id)
 # Le problème du "Buffer" : Normalement, pour économiser des ressources,
 # Python attend d'avoir "beaucoup" de texte à afficher avant de l'envoyer
