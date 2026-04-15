@@ -29,7 +29,7 @@ def main() -> None:
             print(f"\n\033[94m[EXECUTION]\033[0m Test sur : {prompts[0].prompt}")
             result = generator.generate(prompts[0], functions)
             
-            print(f"\n\033[92m[RESULTAT FINAL]\033[0m\n{result}")
+            # print(f"\n\033[92m[RESULTAT FINAL]\033[0m\n{result}")
         except Exception as e:
             print(f"\n\033[93m[WARNING Generation]\033[0m {e}")
 

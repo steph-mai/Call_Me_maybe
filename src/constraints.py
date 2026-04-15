@@ -6,7 +6,11 @@ class JSONLogitsProcessor:
         self.vocab = vocab
 
     def apply_constraints(self, logits: List[float], current_text: str) -> List[float]:
-        """Méthode explicite pour filtrer les logits."""
+        """
+        It modifies the logits returned by the LLM to retain those 
+        that can be used to produce JSON. 
+        It operates on the principle of a state machine.
+        """
         # Si on est au tout début
         if not current_text.strip():
             return self._mask_for_start(logits)

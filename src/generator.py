@@ -115,17 +115,7 @@ class Generator:
         raw_json_str = self.llm.decode(generated_tokens)
         return self._parse_and_validate(raw_json_str, prompt_data.prompt)
 
-    def _apply_constraints(self, logits: List[float], current_text: str, functions: List[FunctionDefinition]) -> List[float]:
-        # PHASE 1 : Forcer le début du JSON par '{'
-        if not current_text.strip():
-            new_logits = [-1e10] * len(logits)
-            for token_id, token_content in self.vocab.items():
-                if token_id < len(logits):
-                    if str(token_content).strip().startswith('{'):
-                        new_logits[token_id] = logits[token_id]
-            return new_logits
 
-        return logits
 
     def _parse_and_validate(self, json_str: str, original_prompt: str) -> FunctionCallResult:
         print(f"\n--- DEBUG RAW OUTPUT ---\n'{json_str}'\n-----------------------")
