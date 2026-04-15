@@ -5,10 +5,13 @@ class JSONLogitsProcessor:
     def __init__(self, vocab: dict):
         self.vocab = vocab
 
-    def apply_constraints(self, logits: List[float], current_text: str) -> List[float]:
+    def apply_constraints(self,
+                          logits: List[float],
+                          current_text: str
+                          ) -> List[float]:
         """
-        It modifies the logits returned by the LLM to retain those 
-        that can be used to produce JSON. 
+        It modifies the logits returned by the LLM to retain those
+        that can be used to produce JSON.
         It operates on the principle of a state machine.
         """
         # Si on est au tout début
