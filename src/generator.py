@@ -3,6 +3,8 @@ import json
 from llm_sdk import Small_LLM_Model
 from src.models import FunctionDefinition, FunctionCallResult, UserPrompt
 from src.constraints import JSONLogitsProcessor
+from src.prompt_builder import PromptBuilder
+from src.output_parser import OutputParser
 
 
 class Generator:
@@ -33,44 +35,8 @@ class Generator:
                     "Empty vocabulary. Check your vocabulary file"
                     )
         self.logits_processor = JSONLogitsProcessor(vocab)
-
-    def _build_full_prompt(
-            self,
-            prompt_data: UserPrompt,
-            functions: List[FunctionDefinition]
-            ) -> str:
-        """
-        generates a complete prompt in string format,
-        including instructions, available functions, and constraints.
-        This string is intended to be passed
-        to the `encode()` function of the `llm_sdk`.
-        """
-        tools_desc = ""
-        for f in functions:
-            tools_desc += f"- Name: {f.name}\n  Description: {f.description}\n  Parameters: {f.parameters}\n\n"
-
-        system_prompt = (
-            "### INSTRUCTIONS\n"
-            "You are a specialized function-calling engine. Your ONLY task is to map user queries to specific JSON tool calls.\n"
-            "STRICT RULE: You must output valid JSON and NOTHING ELSE. No thinking, no intro, no outro.\n\n"
-            "### AVAILABLE FUNCTIONS\n"
-            f"{tools_desc}\n"
-            "### OUTPUT FORMAT\n"
-            "{\n"
-            '  "prompt": "The exact user query",\n'
-            '  "name": "function_name",\n'
-            '  "parameters": {"param_name": value}\n'
-            "}\n\n"
-            "### CRITICAL CONSTRAINTS\n"
-            "- Never include <think> tags.\n"
-            "- Never explain your choice."
-        )
-
-        return (
-            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-            f"<|im_start|>user\n{prompt_data.prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
+        self.prompt_builder = PromptBuilder()
+        self.output_parser = OutputParser()
 
     def generate(self,
                  prompt_data: UserPrompt,
@@ -81,8 +47,9 @@ class Generator:
         Uses the methods of the llm_sdk to transform the initial prompt
         into tokens, then applies the constraints by manipulating the logits
         and translates the logits into text using the llm_sdk.
+        Returns a parsed and validated JSON (Pydantic object)
         """
-        prompt_str = self._build_full_prompt(prompt_data, functions)
+        prompt_str = self.prompt_builder.prompt_build(prompt_data, functions)
         # Comme on n´envoie qu'un seul prompt_str, le résultat de encode()
         # est un Tensor (ou une liste de listes) de type :
         # [[1, 54, 342, 12, ...]]. input_ids (le Tensor complet) : [[...]]
@@ -90,7 +57,7 @@ class Generator:
         input_ids = self.llm.encode(prompt_str).tolist()[0]
 
         max_new_tokens = 512
-        generated_tokens = []
+        generated_tokens: list[int | float] = []
 
         while len(generated_tokens) < max_new_tokens:
             logits = self.llm.get_logits_from_input_ids(
@@ -113,23 +80,4 @@ class Generator:
             print(self.llm.decode([next_token_id]), end="", flush=True)
 
         raw_json_str = self.llm.decode(generated_tokens)
-        return self._parse_and_validate(raw_json_str, prompt_data.prompt)
-
-
-
-    def _parse_and_validate(self, json_str: str, original_prompt: str) -> FunctionCallResult:
-        print(f"\n--- DEBUG RAW OUTPUT ---\n'{json_str}'\n-----------------------")
-        
-        # Nettoyage minimal pour extraire le JSON
-        start = json_str.find('{')
-        end = json_str.rfind('}') + 1
-        if start != -1 and end != 0:
-            json_str = json_str[start:end]
-
-        try:
-            data = json.loads(json_str)
-            # On force le prompt original (sécurité Pydantic)
-            data["prompt"] = original_prompt
-            return FunctionCallResult(**data)
-        except Exception as e:
-            raise ValueError(f"Erreur de parsing JSON : {e}. Contenu : {json_str}")
+        return self.output_parser.output_parse(raw_json_str, prompt_data)
