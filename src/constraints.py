@@ -1,20 +1,21 @@
 from typing import List
 
 
-class JSONLogitsProcessor:
+class JSONStructureEnforcer:
     """
     Enforces strict JSON formatting on LLM outputs by applying 
     grammar-based constraints to prediction logits.
     """
     def __init__(self, vocab: dict):
         self.vocab = vocab
-
-    def apply_constraints(self,
-                          logits: List[float],
-                          current_text: str
-                          ) -> List[float]:
+        self.token_to_id = {str(v): k for k, v in vocab.items()}
+  
+    def enforce_constraints(self,
+                            logits: List[float],
+                            current_text: str
+                            ) -> List[float]:
         """
-        Constrain logits to ensure the next token conforms 
+        Constrain logits to ensure the next token conforms
         to valid JSON syntax.
 
         This method implements a state machine to filter the LLM output
@@ -29,14 +30,27 @@ class JSONLogitsProcessor:
             The filtered list of logits with invalid token scores
             set to -infinity.
         """
-        if not current_text.strip():
-            return self._mask_for_start(logits)
+        text = current_text.strip()
 
-        # TODO à compléter avec les autres états (de la machine à états)
-        
+        if not text:
+            return self._filter_for_start(logits)
+
+        if text.endswith('{') and '"prompt"' not in text:
+            return self._filter_for_exact_string(logits, '"prompt"')
+
+        if text.endswith('"prompt"'):
+            return self._filter_for_exact_string(logits, ":")
+
+        if text.endswith('"prompt:"'):
+            return self._filter_for_exact_string(logits, '"')
+
+        if text.count('"') == 2 and text.endswith('"') and '"name"' not in text:
+            return self._filter_for_exact_string(logits, '"name"')
+
         return logits
 
-    def _mask_for_start(self, logits: List[float]) -> List[float]:
+
+    def _filter_for_start(self, logits: List[float]) -> List[float]:
         """
         Apply a mask that only allows tokens starting with '{'.
 
@@ -50,7 +64,32 @@ class JSONLogitsProcessor:
             Logits with a massive penalty applied to all non-compliant tokens.
         """
         new_logits = [-1e10] * len(logits)
+        found = False
         for token_id, t_content in self.vocab.items():
-            if str(t_content).strip().startswith('{'):
+            #PQ transformé en str
+            t_str = str(t_content).strip()
+            if t_str == '{':
                 new_logits[token_id] = logits[token_id]
-        return new_logits
+                found = True
+        return new_logits if found else logits
+
+    def _filter_for_exact_string(
+            self,
+            logits: List[float],
+            target: str
+            ):
+        """Authorize only logits that lead to the target."""
+        new_logits = [-1e10] * len(logits)
+        found = False
+
+        for token_id, t_content in self.vocab.items():
+            token_str = str(t_content).strip()
+            if not token_str: continue
+            
+            # Si on attend "prompt", on refuse "EIF" ou "Okay"
+            # On vérifie si le token est une sous-partie de notre cible
+            if target.startswith(token_str) or token_str.startswith(target):
+                new_logits[token_id] = logits[token_id]
+                found = True
+
+        return new_logits if found else logits

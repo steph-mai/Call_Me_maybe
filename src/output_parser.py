@@ -1,7 +1,6 @@
 from src.models import FunctionCallResult
 import json
 
-
 class OutputParser:
     """Class which cleans and validate the generator output"""
 
@@ -19,12 +18,12 @@ class OutputParser:
 
         try:
             data = json.loads(json_str)
-            data["prompt"] = original_prompt
+            data["prompt"] = original_prompt.prompt
             return FunctionCallResult(**data)
         except json.JSONDecodeError as e:
-            raise ValueError(f"JSON mal formé : {e}. Texte reçu : {json_str}")
+            raise ValueError(f"Malformed JSON : {e}. Received text : {json_str}")
         except Exception as e:
             raise ValueError(
-                f"Erreur de parsing JSON : {e}. "
-                f"Contenu : {json_str}"
+                f"Parsing JSON error: {e}. "
+                f"Content : {json_str}"
                 )
