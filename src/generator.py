@@ -20,26 +20,26 @@ class Generator:
 
         # A un intérêt si on utilise des LLM presentant des formats
         # differents de vocabulaire (ID: token) ou (token: ID)
-        voca_path = self.llm.get_path_to_vocab_file()
-        with open(voca_path, mode='r', encoding='utf-8') as f:
-            raw_vocab = json.load(f)
-        vocab = {}
-        for key, value in raw_vocab.items():
-            try:
-                v_id = int(key)
-                v_token = str(value)
-            except ValueError:
-                v_id = int(value)
-                v_token = str(key)
-            vocab[v_id] = v_token
-        if not vocab:
-            raise ValueError(
-                "Empty vocabulary. Check your vocabulary file"
-                )
-        self.stucture_enforcer = JSONStructureEnforcer(vocab)
+        # voca_path = self.llm.get_path_to_vocab_file()
+        # with open(voca_path, mode='r', encoding='utf-8') as f:
+        #     raw_vocab = json.load(f)
+        # vocab = {}
+        # for key, value in raw_vocab.items():
+        #     try:
+        #         v_id = int(key)
+        #         v_token = str(value)
+        #     except ValueError:
+        #         v_id = int(value)
+        #         v_token = str(key)
+        #     vocab[v_id] = v_token
+        # if not vocab:
+        #     raise ValueError(
+        #         "Empty vocabulary. Check your vocabulary file"
+        #         )
         self.prompt_builder = PromptBuilder()
         self.output_parser = OutputParser()
-
+        self.stucture_enforcer = JSONStructureEnforcer(self.llm.get_vocab(), self.llm)
+        
     def generate(self,
                  prompt_data: UserPrompt,
                  functions: List[FunctionDefinition]
