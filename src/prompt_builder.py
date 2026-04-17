@@ -1,50 +1,36 @@
-from typing import List
-from src.models import FunctionDefinition, UserPrompt
-
-
 class PromptBuilder:
-    """
-        Class that generates a complete prompt in string format
-        for the LLM use.
-    """
+    def __init__(self):
+        self.system_instruction = "You are a precise data extraction agent."
 
-    def prompt_build(self,
-                     data_prompt: UserPrompt,
-                     functions: List[FunctionDefinition]
-                     ) -> str:
-        """
-        generates a complete prompt in string format,
-        including instructions, available functions, and constraints.
-        This string is intended to be passed
-        to the `encode()` function of the `llm_sdk`.
-        """
+    def build_name_selector_prompt(self, query: str, functions: list) -> str:
+        # (Gardé identique à ta version, c'est l'étape 1)
         tools_desc = ""
         for f in functions:
-            func_desc: str = f"- Name: {f.name}\n  Description: {f.description}\n  Parameters: {f.parameters}\n\n"
-            tools_desc += func_desc
+            tools_desc += f"- {f['name']}: {f['description']}\n"
+        return f"### SYSTEM\n{self.system_instruction}\n\n### TOOLS\n{tools_desc}\n### QUERY\n'{query}'\n\nTool Name: "
 
-        system_prompt = (
-            "### INSTRUCTIONS\n"
-            "You are a specialized function-calling engine. Your ONLY task is "
-            "to map user queries to specific JSON tool calls.\n"
-            "STRICT RULE: You must output valid JSON and NOTHING ELSE."
-            "No thinking, no intro, no outro.\n"
-            "Start your answer with '{', nothing else\n"
-            "### AVAILABLE FUNCTIONS\n"
-            f"{tools_desc}\n"
-            "### OUTPUT FORMAT\n"
-            "{\n"
-            '  "prompt": "The exact user query",\n'
-            '  "name": "function_name",\n'
-            '  "parameters": {"param_name": value}\n'
-            "}\n\n"
-            "### CRITICAL CONSTRAINTS\n"
-            "- Never include <think> tags.\n"
-            "- Never explain your choice."
-        )
+    def build_param_extractor_prompt(self, query: str, fn_info: dict) -> str:
+        """
+        ÉTAPE 2 : On guide le format selon le TYPE.
+        """
+        fn_name = fn_info.get("name")
+        params = fn_info.get("parameters", {})
+        
+        # On construit une ligne d'exemple dynamique
+        guide_parts = []
+        for p_name, p_info in params.items():
+            p_type = p_info.get("type", "string")
+            if p_type == "number":
+                guide_parts.append(f'"{p_name}": <number>')
+            else:
+                guide_parts.append(f'"{p_name}": "<string>"')
+        
+        format_guide = ", ". join(guide_parts)
 
         return (
-            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-            f"<|im_start|>user\n{data_prompt.prompt}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
+            f"### QUERY\n'{query}'\n"
+            f"### SELECTED TOOL\n{fn_name}\n"
+            f"### INSTRUCTION\nExtract parameters in this format: {{{format_guide}}}\n\n"
+            f"### RESPONSE\n"
+            f"Parameters: {{"
         )
