@@ -1,6 +1,6 @@
 import sys
 import os
-from src.generator import ConstrainedDecoder
+from src.constrained_decoder import ConstrainedDecoder
 from src.load import Loader
 
 def main():
@@ -24,7 +24,7 @@ def main():
     # 3. Initialisation (Le modèle et le vocabulaire sont chargés ici)
     try:
         print("[*] Initializing LLM & Vocab Mapping...", end="", flush=True)
-        generator = ConstrainedDecoder()
+        constrained_decoder = ConstrainedDecoder()
         print(" Done.", flush=True)
     except Exception as e:
         print(f"\n\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
@@ -37,7 +37,7 @@ def main():
             print("-" * 50, flush=True)
             
             # La méthode .run() va maintenant imprimer chaque token en couleur
-            generator.run(
+            constrained_decoder.run(
                 functions=functions, 
                 callables=prompts, 
                 output_path=output_file_path
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 # import os
 # import json
 # from src.load import Loader
-# from src.generator import Generator
+# from src.constrained_decoder import ConstrainedDecoder
 
 
 # def main() -> None:
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 #     #     try:
 #     #         for i, prompt in enumerate(prompts, 1):
 #     #             print(f"\n--- Test {i} ---")
-#     #             result = generator.generate(prompt, functions)
+#     #             result = ConstrainedDecoder.generate(prompt, functions)
                 
 #     #             # Affichage version JSON propre dans le terminal
 #     #             print("\n[RESULTAT JSON] :")
@@ -106,4 +106,4 @@ if __name__ == "__main__":
 
     # # Ici tu appelleras ton Loader avec args.input, args.
     # functions_definition, etc.
-    # # Puis ton Generator...
+    # # Puis ton constrained_decoder...

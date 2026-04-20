@@ -5,24 +5,9 @@ import numpy as np
 from typing import Any, Dict, List, Set
 from llm_sdk import Small_LLM_Model
 from src.models import FunctionDefinition, UserPrompt, FunctionCallResult
+from src.state_node import StateNode
 
 NEG_INF: float = -1e11
-
-
-class TrieNode:
-    def __init__(self):
-        self.children: Dict[int, 'TrieNode'] = {}
-        self.is_terminal: bool = False
-        self.name: str = ""
-
-    def insert(self, token_ids: List[int], name: str):
-        node = self
-        for tid in token_ids:
-            if tid not in node.children:
-                node.children[tid] = TrieNode()
-            node = node.children[tid]
-        node.is_terminal = True
-        node.name = name
 
 
 class ConstrainedDecoder:
@@ -35,6 +20,8 @@ class ConstrainedDecoder:
         self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
         self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
         self._quote_id = self.llm.encode('"')[0].tolist()[-1]
+        from src.prompt_processor import PromptProcessor
+        self.prompt_processor = PromptProcessor(self)
 
     def _build_set(self, pattern: str) -> Set[int]:
         allowed = set()
@@ -53,7 +40,7 @@ class ConstrainedDecoder:
         return int(np.argmax(mask))
 
     def _force_name(self, ids: List[int], functions: List[FunctionDefinition]) -> str:
-        root = TrieNode()
+        root = StateNode()
         for f in functions:
             root.insert(self.llm.encode(f.name)[0].tolist(), f.name)
         curr = root
@@ -61,13 +48,15 @@ class ConstrainedDecoder:
         sys.stdout.write("\n  [NAME]: ")
         while True:
             allowed = set(curr.children.keys())
-            if not allowed: break
+            if not allowed: 
+                break
             chosen = self._get_masked_next(temp_ids, allowed) if len(allowed) > 1 else next(iter(allowed))
             sys.stdout.write(f"\033[94m{self.llm.decode([chosen])}\033[0m")
             sys.stdout.flush()
             temp_ids.append(chosen)
             curr = curr.children[chosen]
-            if curr.is_terminal and not curr.children: return curr.name
+            if curr.is_terminal and not curr.children: 
+                return curr.name
         return curr.name
 
     def _extract_value(self, ids: List[int], p_type: str) -> Any:
@@ -114,11 +103,13 @@ class ConstrainedDecoder:
                         if tid < len(logits): logits[tid] = NEG_INF
                 
                 chosen = int(np.argmax(logits))
-                if chosen == self._quote_id: break
+                if chosen == self._quote_id:
+                    break
                 
                 chunk = self.llm.decode([chosen])
                 # On ne break sur \n que si on a déjà du texte (évite les sorties prématurées)
-                if "\n" in chunk and len(res) > 0: break
+                if "\n" in chunk and len(res) > 0:
+                    break
                 
                 sys.stdout.write(f"\033[93m{chunk}\033[0m")
                 sys.stdout.flush()
@@ -168,16 +159,21 @@ class ConstrainedDecoder:
         return FunctionCallResult(prompt=prompt, name=selected_name, parameters=final_params)
 
     def run(self, functions: List[FunctionDefinition], callables: List[UserPrompt], output_path: str):
-        # FIX : Utilisation de model_dump() pour la sérialisation JSON
+        # --- Préparation des données statiques ---
         tools_list = [f.model_dump() for f in functions]
         static_ids = self.llm.encode(f"System: Tool Extractor. Tools: {json.dumps(tools_list)}")[0].tolist()
 
         results = []
         for idx, call in enumerate(callables):
             sys.stdout.write(f"\n[{idx+1}/{len(callables)}] Prompt: {call.prompt[:30]}...")
-            res = self.process_prompt(call.prompt, functions, static_ids)
+            
+            # --- APPEL AU PROCESSEUR ---
+            # On utilise le processeur pour faire le "gros du travail"
+            res = self.prompt_processor.process(call.prompt, functions, static_ids)
+            
             results.append(res.model_dump())
             sys.stdout.flush()
             
+        # --- Sauvegarde finale ---
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=4, ensure_ascii=False)
