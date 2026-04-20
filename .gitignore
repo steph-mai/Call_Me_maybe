@@ -17,3 +17,6 @@ models/
 
 #IDE
 .vscode/
+
+output.json
+

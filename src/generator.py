@@ -1,140 +1,183 @@
 import json
 import re
-from src.prompt_builder import PromptBuilder
+import sys
+import numpy as np
+from typing import Any, Dict, List, Set
+from llm_sdk import Small_LLM_Model
+from src.models import FunctionDefinition, UserPrompt, FunctionCallResult
 
-class Generator:
+NEG_INF: float = -1e11
+
+
+class TrieNode:
+    def __init__(self):
+        self.children: Dict[int, 'TrieNode'] = {}
+        self.is_terminal: bool = False
+        self.name: str = ""
+
+    def insert(self, token_ids: List[int], name: str):
+        node = self
+        for tid in token_ids:
+            if tid not in node.children:
+                node.children[tid] = TrieNode()
+            node = node.children[tid]
+        node.is_terminal = True
+        node.name = name
+
+
+class ConstrainedDecoder:
     def __init__(self, model_name: str = "Qwen/Qwen3-0.6B") -> None:
-        from llm_sdk import Small_LLM_Model
         self.llm = Small_LLM_Model(model_name=model_name)
+        vocab_path = self.llm.get_path_to_vocab_file()
+        with open(vocab_path, "r", encoding="utf-8") as f:
+            self.vocab = json.load(f)
+            
+        self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
+        self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
+        self._quote_id = self.llm.encode('"')[0].tolist()[-1]
+
+    def _build_set(self, pattern: str) -> Set[int]:
+        allowed = set()
+        for tok_str, tid in self.vocab.items():
+            clean = tok_str.replace("\u0120", "").replace(" ", "").strip()
+            if clean and re.match(pattern, clean):
+                allowed.add(tid)
+        return allowed
+
+    def _get_masked_next(self, ids: List[int], allowed: Set[int]) -> int:
+        logits = np.array(self.llm.get_logits_from_input_ids(ids), dtype=np.float32)
+        while len(logits.shape) > 1: logits = logits[-1]
+        mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
+        for tid in allowed:
+            if tid < len(mask): mask[tid] = logits[tid]
+        return int(np.argmax(mask))
+
+    def _force_name(self, ids: List[int], functions: List[FunctionDefinition]) -> str:
+        root = TrieNode()
+        for f in functions:
+            root.insert(self.llm.encode(f.name)[0].tolist(), f.name)
+        curr = root
+        temp_ids = list(ids)
+        sys.stdout.write("\n  [NAME]: ")
+        while True:
+            allowed = set(curr.children.keys())
+            if not allowed: break
+            chosen = self._get_masked_next(temp_ids, allowed) if len(allowed) > 1 else next(iter(allowed))
+            sys.stdout.write(f"\033[94m{self.llm.decode([chosen])}\033[0m")
+            sys.stdout.flush()
+            temp_ids.append(chosen)
+            curr = curr.children[chosen]
+            if curr.is_terminal and not curr.children: return curr.name
+        return curr.name
+
+    def _extract_value(self, ids: List[int], p_type: str) -> Any:
+        temp_ids = list(ids)
+        res = ""
+
+        if p_type == "number":
+            allowed = self._tokens_num | self._tokens_stop
+            for _ in range(15):
+                tid = self._get_masked_next(temp_ids, allowed)
+                
+                # Si le LLM choisit un token d'arrêt (espace, virgule, etc.)
+                if tid in self._tokens_stop:
+                    break
+                
+                chunk = self.llm.decode([tid])
+                clean = "".join(c for c in chunk if c in "0123456789.eE-")
+                
+                if not clean: # Si le token décodé n'est pas numérique
+                    break
+                
+                sys.stdout.write(f"\033[92m{chunk}\033[0m")
+                sys.stdout.flush()
+                res += chunk
+                temp_ids.append(tid)
+            
+            # --- FIX : FORCER LE FORMAT .0 ---
+            if res:
+                # Si c'est un entier (pas de point, pas de 'e')
+                if "." not in res and "e" not in res.lower():
+                    sys.stdout.write(f"\033[92m.0\033[0m")
+                    res += ".0"
+                return float(res)
+            return 0.0
         
-        # Chargement vocabulaire (ID: Token) - Ton bloc
-        v_path = self.llm.get_path_to_vocab_file()
-        with open(v_path, mode='r', encoding='utf-8') as f:
-            raw_vocab = json.load(f)
-        self.vocab = self._normalize_vocab(raw_vocab)
-
-        self.prompt_builder = PromptBuilder()
-
-    def _normalize_vocab(self, raw_vocab):
-        vocab = {}
-        for k, v in raw_vocab.items():
-            try: vocab[int(k)] = str(v)
-            except ValueError: vocab[int(v)] = str(k)
-        return vocab
-
-    def _get_control_tokens(self, mode: str, whitelist: list = None):
-        """On adapte ta logique pour filtrer par TYPE."""
-        tokens = {"target": [], "whitespace": []}
-        
-        for tid, t_text in self.vocab.items():
-            # Gestion des espaces pour la fluidité
-            if not t_text.strip() and len(t_text) > 0:
-                tokens["whitespace"].append(tid)
-                continue
-
-            clean = t_text.strip().replace('"', '').replace("'", "")
-            
-            if mode == "whitelist" and whitelist:
-                if any(clean in fn for fn in whitelist):
-                    tokens["target"].append(tid)
-            elif mode == "number":
-                if any(char.isdigit() or char == "." for char in clean):
-                    tokens["target"].append(tid)
-            else: # mode "text" ou "string"
-                tokens["target"].append(tid) # Plus permissif pour les chaînes
+        else: # STRINGS (Fix pour les Regex incomplets)
+            for i in range(120):
+                logits = np.array(self.llm.get_logits_from_input_ids(temp_ids), dtype=np.float32)
+                while len(logits.shape) > 1: logits = logits[-1]
                 
-        return tokens
-
-    def _run_constrained_generation(self, prompt: str, mode: str, whitelist: list = None):
-        """Ta boucle de génération sécurisée."""
-        prompt_ids = self.llm.encode(prompt).tolist()[0]
-        generated_text = ""
-        tokens = []
-        controls = self._get_control_tokens(mode, whitelist)
-        eos_id = getattr(self.llm._tokenizer, 'eos_token_id', -1)
-
-        # On limite à 15 tokens pour une valeur unique (évite le bégaiement)
-        for _ in range(15):
-            raw_logits = self.llm.get_logits_from_input_ids(prompt_ids + tokens)
-            
-            # Ton FIX navigation listes Python
-            logits_vec = raw_logits
-            while isinstance(logits_vec, list) and len(logits_vec) > 0 and isinstance(logits_vec[0], list):
-                logits_vec = logits_vec[-1]
-
-            mask_value = -1e11
-            new_logits = [mask_value] * len(logits_vec)
-            
-            # Autorisation : Valeurs cibles + Espaces + EOS
-            allowed_ids = set(controls["target"] + controls["whitespace"])
-            if eos_id != -1: allowed_ids.add(eos_id)
-
-            for tid in allowed_ids:
-                if 0 <= tid < len(new_logits):
-                    new_logits[tid] = logits_vec[tid]
-
-            max_val = max(new_logits)
-            if max_val <= mask_value: break
+                if i == 0:
+                    logits[self._quote_id] = NEG_INF
+                    for tid in self._tokens_stop:
+                        if tid < len(logits): logits[tid] = NEG_INF
                 
-            next_id = new_logits.index(max_val)
-            if next_id == eos_id: break
+                chosen = int(np.argmax(logits))
+                if chosen == self._quote_id: break
+                
+                chunk = self.llm.decode([chosen])
+                # On ne break sur \n que si on a déjà du texte (évite les sorties prématurées)
+                if "\n" in chunk and len(res) > 0: break
+                
+                sys.stdout.write(f"\033[93m{chunk}\033[0m")
+                sys.stdout.flush()
+                res += chunk
+                temp_ids.append(chosen)
+                
+            return res.strip()
+
+    def process_prompt(self, prompt: str, functions: List[FunctionDefinition], static_ids: List[int]) -> FunctionCallResult:
+        # 1. Sélection du Nom
+        name_ids = static_ids + self.llm.encode(f"\nQuery: {prompt}\nFunction:")[0].tolist()
+        selected_name = self._force_name(name_ids, functions)
+        fn_def = next(f for f in functions if f.name == selected_name)
+
+        # 2. Extraction des Paramètres (Context Reset)
+        final_params = {}
+        for p_name, p_info in fn_def.parameters.items():
+            sys.stdout.write(f" | {p_name}: ")
+
+            # Utilisation de l'ancre JSON pour stabiliser l'extraction
+            instruction = f"\nTask: {prompt}\nFunction: {selected_name}\n{p_name}="
+            if p_info.type == "string": instruction += '"'
+
+            p_ids = static_ids + self.llm.encode(instruction)[0].tolist()
+            val = self._extract_value(p_ids, p_info.type)
+
+            if isinstance(val, str) and p_name == "regex":
+                # On ferme les parenthèses manquantes
+                while val.count('(') > val.count(')'):
+                    val += ')'
+                # On ferme les crochets manquants
+                while val.count('[') > val.count(']'):
+                    val += ']'
+
+                # Nettoyage de sécurité : si le modèle a inclus un guillemet de fin par erreur
+                val = val.replace('"', '').strip()
+
+            if p_name == "replacement" and isinstance(val, str):
+                # Si l'utilisateur demande des asterisks et que le modèle en met trop
+                # On réduit les suites d'étoiles à une seule étoile
+                if "**" in val:
+                    val = "*"
+                val = val.replace('"', '').strip()
+
+            final_params[p_name] = val
+
+        return FunctionCallResult(prompt=prompt, name=selected_name, parameters=final_params)
+
+    def run(self, functions: List[FunctionDefinition], callables: List[UserPrompt], output_path: str):
+        # FIX : Utilisation de model_dump() pour la sérialisation JSON
+        tools_list = [f.model_dump() for f in functions]
+        static_ids = self.llm.encode(f"System: Tool Extractor. Tools: {json.dumps(tools_list)}")[0].tolist()
+
+        results = []
+        for idx, call in enumerate(callables):
+            sys.stdout.write(f"\n[{idx+1}/{len(callables)}] Prompt: {call.prompt[:30]}...")
+            res = self.process_prompt(call.prompt, functions, static_ids)
+            results.append(res.model_dump())
+            sys.stdout.flush()
             
-            t_text = self.llm.decode([next_id])
-            
-            # Stop si espace après le texte (fin de la valeur)
-            if generated_text.strip() and (not t_text.strip() or "\n" in t_text):
-                break
-                
-            tokens.append(next_id)
-            generated_text += t_text
-            print(t_text, end="", flush=True)
-
-        return generated_text.strip()
-
-    def generate(self, query: str, functions: list) -> dict:
-        """La Machine à États : On pilote l'extraction pas à pas."""
-        
-        # --- ÉTAPE 1 : Sélection du Nom ---
-        name_prompt = self.prompt_builder.build_name_selector_prompt(query, functions)
-        fn_names = [f["name"] for f in functions]
-        raw_name = self._run_constrained_generation(name_prompt, "whitelist", whitelist=fn_names)
-        
-        # On valide le nom par rapport à ta liste
-        selected_name = next((n for n in fn_names if n in raw_name), fn_names[0])
-
-        # --- ÉTAPE 2 : Remplissage des Paramètres (FSM) ---
-        fn_info = next((f for f in functions if f["name"] == selected_name), None)
-        extracted_params = {}
-
-        if fn_info:
-            params_config = fn_info.get("parameters", {})
-            
-            # On ne laisse pas le LLM écrire le JSON. 
-            # On boucle sur TON dictionnaire pour lui poser des questions ciblées.
-            for p_name, p_info in params_config.items():
-                p_type = p_info.get("type", "string")
-                
-                # On construit un mini-prompt pour CHAQUE clé
-                mini_prompt = (
-                    f"### QUERY: {query}\n"
-                    f"### TASK: Extract the value for '{p_name}' (Type: {p_type})\n"
-                    f"### RESPONSE\n{p_name}: "
-                )
-                
-                # On force le mode (number ou text) basé sur TON dico
-                mode_key = "number" if p_type == "number" else "text"
-                val_raw = self._run_constrained_generation(mini_prompt, mode_key)
-                
-                # Conversion propre
-                if p_type == "number":
-                    nums = re.findall(r'\d+\.?\d*', val_raw)
-                    extracted_params[p_name] = float(nums[0]) if nums else 0
-                else:
-                    extracted_params[p_name] = val_raw.strip('"').strip()
-
-        # Retourne le dictionnaire Python final (Zéro parsing JSON nécessaire)
-        return {
-            "prompt": query,
-            "name": selected_name,
-            "parameters": extracted_params
-        }
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=4, ensure_ascii=False)

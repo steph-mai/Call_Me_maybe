@@ -1,46 +1,58 @@
-from src.generator import Generator
-import json
-
+import sys
+import os
+from src.generator import ConstrainedDecoder
+from src.load import Loader
 
 def main():
-    list_functions = [
-        {
-            "name": "fn_add_numbers",
-            "description": "Add two numbers together and return their sum.",
-        },
-        {
-            "name": "fn_greet",
-            "description": "Generate a greeting message for a person by name.",
-        }
-    ]
+    # 1. Nettoyage initial du terminal pour le confort visuel
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
+    loader = Loader()
+    output_file_path = "data/output/function_calling_results.json"
 
-    user_queries = [
-        "What is the sum of 2 and 3?",
-        "What is the sum of 265 and 345?",
-        "Greet shrek"
-    ]
+    print("\033[1m--- CALL ME MAYBE: HIGH PERFORMANCE FSM ---\033[0m\n", flush=True)
 
-    print("--- Initializing Generator (Loading Model & Vocab) ---")
-    generator = Generator(model_name="Qwen/Qwen3-0.6B")
+    # 2. Chargement des données
+    try:
+        functions = loader.get_functions("data/input/functions_definition.json")
+        prompts = loader.get_prompts("data/input/function_calling_tests.json")
+        print(f"[*] Input: {len(prompts)} prompts loaded.", flush=True)
+    except Exception as e:
+        print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
 
-    final_results = []
+    # 3. Initialisation (Le modèle et le vocabulaire sont chargés ici)
+    try:
+        print("[*] Initializing LLM & Vocab Mapping...", end="", flush=True)
+        generator = ConstrainedDecoder()
+        print(" Done.", flush=True)
+    except Exception as e:
+        print(f"\n\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
 
-    for i, query in enumerate(user_queries, 1):
-        print(f"\n[Test {i}] Query: '{query}'")
-        print("Output: ", end="")
-        
+    # 4. Lancement du Pipeline
+    if prompts:
         try:
-            result = generator.generate(query, list_functions)
-            final_results.append(result)
-        except Exception as e:
-            print(f"\n[ERROR] Failed to process query '{query}': {e}")
+            print("\n\033[1mStarting Real-Time Generation:\033[0m", flush=True)
+            print("-" * 50, flush=True)
+            
+            # La méthode .run() va maintenant imprimer chaque token en couleur
+            generator.run(
+                functions=functions, 
+                callables=prompts, 
+                output_path=output_file_path
+            )
 
-    print("FINAL STRUCTURED OUTPUT")
-    print(json.dumps(final_results, indent=2))
+            print("\n" + "-" * 50, flush=True)
+            print(f"\n\033[92m[COMPLETED]\033[0m All results saved to: {output_file_path}", flush=True)
+            
+        except Exception as e:
+            print(f"\n\033[91m[CRITICAL ERROR during generation]\033[0m {e}", flush=True)
+    else:
+        print("\033[93m[INFO]\033[0m No prompts found to process.", flush=True)
 
 if __name__ == "__main__":
     main()
-
 # # import argparse
 # import sys
 # import os
@@ -50,50 +62,7 @@ if __name__ == "__main__":
 
 
 # def main() -> None:
-#     loader = Loader()
-#     output_file_path = "data/output/function_calling_results.json"
 
-#     try:
-#         functions = loader.get_functions("data/input/functions_definition.json")
-#         prompts = loader.get_prompts("data/input/function_calling_tests.json")
-#     except Exception as e:
-#         print(f"\033[91m[ERROR Loader]\033[0m {e}", file=sys.stderr)
-#         sys.exit(1)
-
-#     try:
-#         generator = Generator()
-#     except Exception as e:
-#         print(f"\033[91m[ERROR Model]\033[0m {e}", file=sys.stderr)
-#         sys.exit(1)
-
-#     all_results = []
-
-#     if prompts:
-#         try:
-#             for i, prompt in enumerate(prompts[1:2], 1):
-#                 print(f"\n--- Test {i} ---")
-
-#                 result = generator.generate(prompt, functions)
-#     # model_dump prend les données stockées dans une instance de classe
-#     # et les décharge dans un format standard (dico)
-#                 data_to_save = result.model_dump()
-#                 all_results.append(data_to_save)
-#     # os.path.dirname : Récupère la partie "dossier" de ton chemin.
-#     # os.makedirs : Crée toute l'arborescence (si data n'existe pas, 
-#     # il crée data, puis output).
-#     # exist_ok=True : Pas de pb si le dir existe déjà
-#             directory = os.path.dirname(output_file_path)
-#             if directory:
-#                 os.makedirs(directory, exist_ok=True)
-
-#             with open(output_file_path, "w", encoding="utf-8") as f:
-#                 # indent=4 : Sans cela, tout le JSON sera sur une seule ligne.
-#                 json.dump(all_results, f, indent=4)
-#             print(f"\033[92m[SUCCESS]\033[0m Generated File: {output_file_path}")
-
-#         except Exception as e:
-#             print(f"\n\033[93m[WARNING Generation]\033[0m {e}")
-    
     
 #     # if prompts:
 #     #     try:
