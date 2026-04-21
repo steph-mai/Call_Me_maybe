@@ -32,13 +32,21 @@ class ConstrainedDecoder:
                 allowed.add(tid)
         return allowed
 
-    def _get_masked_next(self, ids: List[int], allowed: Set[int]) -> int:
-        # Conversion : On transforme cela en tableau NumPy pour faire des calculs rapides.
-        # float32 : definit le type de donnees et le nombre de bits utilises pour les stocker
-        logits = np.array(self.llm.get_logits_from_input_ids(ids), dtype=np.float32)
-        # Le dernier mot : Le modèle renvoie souvent les scores pour toute la 
+    def _get_masked_next(
+            self,
+            ids: List[int],
+            allowed: Set[int] | None
+            ) -> int:
+        # Conversion : On transforme cela en tableau NumPy pour faire
+        # des calculs rapides. float32 : definit le type de donnees
+        # et le nombre de bits utilises pour les stocker
+        logits = np.array(
+            self.llm.get_logits_from_input_ids(ids),
+            dtype=np.float32
+        )
+        # Le dernier mot : Le modèle renvoie souvent les scores pour toute la
         # phrase. on ne veut que les prédictions pour le tout dernier token
-        # (celui qui va être généré). On réduit donc le tableau pour ne garder 
+        # (celui qui va être généré). On réduit donc le tableau pour ne garder
         # Le shape precise la forme du modele renvoyé.
         while len(logits.shape) > 1:
             logits = logits[-1]
@@ -47,8 +55,9 @@ class ConstrainedDecoder:
         mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
         # len(mask) représente la taille totale du dictionnaire du modèle
         # (par exemple, 32 000 tokens).
-        # La condition if tid < len(mask): vérifie que l'identifiant du token 
-        # (tid) que l on veut autoriser existe bien dans l'index du modèle.
+        # La condition if tid < len(mask): vérifie que l'identifiant
+        # du token (tid) que l on veut autoriser existe bien
+        # dans l'index du modèle.
         for tid in allowed:
             if tid < len(mask):
                 mask[tid] = logits[tid]
@@ -113,8 +122,12 @@ class ConstrainedDecoder:
             if p_type == "number":
                 chosen = self._get_masked_next(current_context_ids, allowed)
             else:
-                logits = np.array(self.llm.get_logits_from_input_ids(current_context_ids), dtype=np.float32)
-                # tant qu il reste pls dimensions à la structure, on choisit son dernier element
+                logits = np.array(
+                    self.llm.get_logits_from_input_ids(current_context_ids),
+                    dtype=np.float32
+                )
+                # tant qu il reste pls dimensions à la structure,
+                # on choisit son dernier element
                 while len(logits.shape) > 1:
                     logits = logits[-1]
                 if i == 0:
@@ -131,11 +144,16 @@ class ConstrainedDecoder:
             # (un espace, une virgule, ou un saut de ligne).
             # Si on attend un nombre ET que le token est dans ta liste
             # de "caractères d'arrêt", on valide la fin de la saisie.
-            is_stop_token = (chosen == self.quote_id) or (p_type == "number" and chosen in self._tokens_stop)
-
+            is_stop_token = (
+                (chosen == self.quote_id) or
+                (p_type == "number" and chosen in self._tokens_stop)
+            )
             if is_stop_token:
                 if p_type == "number" and extracted_value:
-                    if "." not in extracted_value and "e" not in extracted_value.lower():
+                    if (
+                        "." not in extracted_value
+                        and "e" not in extracted_value.lower()
+                    ):
                         sys.stdout.write(f"{color}.0\033[0m")
                         extracted_value += ".0"
                 break
@@ -157,15 +175,16 @@ class ConstrainedDecoder:
                 return float(extracted_value) if extracted_value else 0.0
             except ValueError:
                 return 0.0
-   
+
         return extracted_value.strip()
 
     def run(
             self,
             functions: List[FunctionDefinition],
             user_prompts: List[UserPrompt],
-            output_path: str):
-        # model_dump : methode de Pydantic qui prend toutes les donnees 
+            output_path: str
+            ) -> None:
+        # model_dump : methode de Pydantic qui prend toutes les donnees
         # stockees dans une instance de classe et les "decharge" dans un
         # format standars (dico)
         tools_list = [f.model_dump() for f in functions]

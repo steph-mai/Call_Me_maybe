@@ -1,100 +1,80 @@
 import sys
+import argparse
 from src.constrained_decoder import ConstrainedDecoder
 from src.load import Loader
+from pathlib import Path
 
 
-def main():
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-d",
+        "--functions_definition",
+        default="data/input/functions_definition.json",
+        help="Path to functions definition file")
+    parser.add_argument(
+        "-i",
+        "--input",
+        default="data/input/function_calling_tests.json",
+        help="Path to user prompts file"
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="data/output/function_calling_results.json",
+        help="Path to output file or directory"
+    )
+    args = parser.parse_args()
     loader = Loader()
-    output_file_path = "data/output/function_calling_results.json"
+    output_file_path = Path(args.output)
+    output_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print("\033[1m--- CALL ME MAYBE ---\033[0m\n", flush=True)
+    sys.stdout.write("\033[1m--- CALL ME MAYBE ---\033[0m\n\n")
+    sys.stdout.flush()
 
     try:
-        functions = loader.get_functions(
-            "data/input/functions_definition.json"
-            )
-        prompts = loader.get_prompts("data/input/function_calling_tests.json")
-        print(f"Input: {len(prompts)} prompts loaded.", flush=True)
+        functions = loader.get_functions(args.functions_definition)
+        prompts = loader.get_prompts(args.input)
+        sys.stdout.write(f"Input: {len(prompts)} prompts loaded.\n")
+        sys.stdout.flush()
     except Exception as e:
-        print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
+        sys.stderr.write(f"\033[91m[ERROR]\033[0m {e}\n")
+        sys.stderr.flush()
         sys.exit(1)
 
     try:
-        print("Initializing LLM & Vocab Mapping...", end="", flush=True)
+        sys.stdout.write("Initializing LLM & Vocab Mapping...")
+        sys.stdout.flush()
         constrained_decoder = ConstrainedDecoder()
-        print(" Done.", flush=True)
+        sys.stdout.write(" Done.\n")
+        sys.stdout.flush()
     except Exception as e:
-        print(f"\n\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
+        sys.stderr.write(f"\n\033[91m[ERROR]\033[0m {e}\n")
+        sys.stderr.flush()
         sys.exit(1)
 
     if prompts:
         try:
-            print("\n\033[1mStarting Real-Time Generation:\033[0m", flush=True)
-            print("-" * 50, flush=True)
+            sys.stdout.write("\n\033[1mStarting Real-Time Generation:"
+                             "\033[0m\n")
+            sys.stdout.write("-" * 50 + "\n")
+            sys.stdout.flush()
 
             constrained_decoder.run(functions, prompts, output_file_path)
-            print(f"\n\033[92m[COMPLETED]\033[0m "
-                  f"All results saved to: {output_file_path}", flush=True)
+
+            sys.stdout.write(f"\n\033[92m[COMPLETED]\033[0m "
+                             f"All results saved to: {output_file_path}\n")
+            sys.stdout.flush()
 
         except Exception as e:
-            print(f"\n\033[91m[CRITICAL ERROR during generation]"
-                  f"\033[0m {e}", flush=True)
+            sys.stdout.write(f"\n\033[91m[CRITICAL ERROR "
+                             f"during generation]\033[0m {e}\n")
+            sys.stdout.flush()
     else:
-        print("\033[93m[INFO]\033[0m No prompts found to process.", flush=True)
+        sys.stdout.write("\033[93m[INFO]\033[0m "
+                         "No prompts found to process.\n")
+        sys.stdout.flush()
+
 
 if __name__ == "__main__":
     main()
-# # import argparse
-# import sys
-# import os
-# import json
-# from src.load import Loader
-# from src.constrained_decoder import ConstrainedDecoder
-
-
-# def main() -> None:
-
-    
-#     # if prompts:
-#     #     try:
-#     #         for i, prompt in enumerate(prompts, 1):
-#     #             print(f"\n--- Test {i} ---")
-#     #             result = ConstrainedDecoder.generate(prompt, functions)
-                
-#     #             # Affichage version JSON propre dans le terminal
-#     #             print("\n[RESULTAT JSON] :")
-#     #             print(result.model_dump_json(indent=4))
-    
-
-#         except Exception as e:
-#             print(f"\n\033[93m[WARNING Generation]\033[0m {e}")
-
-# if __name__ == "__main__":
-#     main()
-
-
-    # 1. Configuration des arguments
-    # avec argparse
-    # parser = argparse.ArgumentParser
-    # (description="LLM Function Calling Program")
-
-    # parser.add_argument("--functions_definition",
-    #                     default="data/definitions.json", # Chemin par défaut
-    #                     help="Path to functions definition JSON")
-
-    # parser.add_argument("--input",
-    #                     default="data/input/", # Dossier par défaut
-    #                     help="Path to input JSON or directory")
-
-    # parser.add_argument("--output",
-    #                     default="data/output/", # Dossier par défaut
-    #                     help="Path to output directory or file")
-
-    # args = parser.parse_args()
-
-    # # 2. Orchestration
-    # print(f"Lancement avec l'entrée : {args.input}")
-
-    # # Ici tu appelleras ton Loader avec args.input, args.
-    # functions_definition, etc.
-    # # Puis ton constrained_decoder...
