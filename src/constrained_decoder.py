@@ -2,10 +2,11 @@ import json
 import re
 import sys
 import numpy as np
-from typing import Any, Dict, List, Set
+from typing import Any, List, Set
 from llm_sdk import Small_LLM_Model
-from src.models import FunctionDefinition, UserPrompt, FunctionCallResult
+from src.models import FunctionDefinition, UserPrompt
 from src.state_node import StateNode
+from src.prompt_processor import PromptProcessor
 
 NEG_INF: float = -1e11
 
@@ -13,15 +14,15 @@ NEG_INF: float = -1e11
 class ConstrainedDecoder:
     def __init__(self, model_name: str = "Qwen/Qwen3-0.6B") -> None:
         self.llm = Small_LLM_Model(model_name=model_name)
+        self.prompt_processor = PromptProcessor(self)
+
         vocab_path = self.llm.get_path_to_vocab_file()
         with open(vocab_path, "r", encoding="utf-8") as f:
             self.vocab = json.load(f)
-            
+
         self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
         self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
-        self._quote_id = self.llm.encode('"')[0].tolist()[-1]
-        from src.prompt_processor import PromptProcessor
-        self.prompt_processor = PromptProcessor(self)
+        self.quote_id = self.llm.encode('"')[0].tolist()[-1]
 
     def _build_set(self, pattern: str) -> Set[int]:
         allowed = set()
@@ -32,148 +33,169 @@ class ConstrainedDecoder:
         return allowed
 
     def _get_masked_next(self, ids: List[int], allowed: Set[int]) -> int:
+        # Conversion : On transforme cela en tableau NumPy pour faire des calculs rapides.
+        # float32 : definit le type de donnees et le nombre de bits utilises pour les stocker
         logits = np.array(self.llm.get_logits_from_input_ids(ids), dtype=np.float32)
-        while len(logits.shape) > 1: logits = logits[-1]
+        # Le dernier mot : Le modèle renvoie souvent les scores pour toute la 
+        # phrase. on ne veut que les prédictions pour le tout dernier token
+        # (celui qui va être généré). On réduit donc le tableau pour ne garder 
+        # Le shape precise la forme du modele renvoyé.
+        while len(logits.shape) > 1:
+            logits = logits[-1]
+        # on remplit un tableau de même forme que celui des logits
+        # avec des NEG_INF
         mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
+        # len(mask) représente la taille totale du dictionnaire du modèle
+        # (par exemple, 32 000 tokens).
+        # La condition if tid < len(mask): vérifie que l'identifiant du token 
+        # (tid) que l on veut autoriser existe bien dans l'index du modèle.
         for tid in allowed:
-            if tid < len(mask): mask[tid] = logits[tid]
+            if tid < len(mask):
+                mask[tid] = logits[tid]
+
         return int(np.argmax(mask))
 
-    def _force_name(self, ids: List[int], functions: List[FunctionDefinition]) -> str:
+    def force_name(self,
+                   full_prompt_ids: List[int],
+                   functions: List[FunctionDefinition]
+                   ) -> str:
         root = StateNode()
         for f in functions:
-            root.insert(self.llm.encode(f.name)[0].tolist(), f.name)
+            root.insert_name(self.llm.encode(f.name)[0].tolist(), f.name)
         curr = root
-        temp_ids = list(ids)
+        current_context_ids = list(full_prompt_ids)
         sys.stdout.write("\n  [NAME]: ")
         while True:
             allowed = set(curr.children.keys())
-            if not allowed: 
+            # tant qu il y a des enfants
+            if not allowed:
                 break
-            chosen = self._get_masked_next(temp_ids, allowed) if len(allowed) > 1 else next(iter(allowed))
+            # Le Masquage: S'il y a plusieurs choix possibles (ex: deux
+            # fonctions commencent par "fn_"),
+            # on appelle _get_masked_next.
+            # Le modèle d'IA va choisir le token le plus probable uniquement
+            # parmi ceux autorisés.
+            # S'il n'y a qu'un seul choix,
+            # on ne demande même pas à l'IA (gain de temps), on prend
+            # le seul token dispo (next(iter(allowed))).
+            if len(allowed) > 1:
+                chosen = self._get_masked_next(current_context_ids, allowed)
+            else:
+                # iter transforme le set en iterable
+                # avec next on recupere le 1er(ici le seul élément)
+                chosen = next(iter(allowed))
+
             sys.stdout.write(f"\033[94m{self.llm.decode([chosen])}\033[0m")
             sys.stdout.flush()
-            temp_ids.append(chosen)
+
+            current_context_ids.append(chosen)
+
             curr = curr.children[chosen]
-            if curr.is_terminal and not curr.children: 
+
+            if curr.is_terminal and not curr.children:
                 return curr.name
         return curr.name
 
-    def _extract_value(self, ids: List[int], p_type: str) -> Any:
-        temp_ids = list(ids)
-        res = ""
+    def extract_param_value(self, ids: List[int], p_type: str) -> Any:
+        current_context_ids = list(ids)
+        extracted_value = ""
 
         if p_type == "number":
             allowed = self._tokens_num | self._tokens_stop
-            for _ in range(15):
-                tid = self._get_masked_next(temp_ids, allowed)
-                
-                # Si le LLM choisit un token d'arrêt (espace, virgule, etc.)
-                if tid in self._tokens_stop:
-                    break
-                
-                chunk = self.llm.decode([tid])
-                clean = "".join(c for c in chunk if c in "0123456789.eE-")
-                
-                if not clean: # Si le token décodé n'est pas numérique
-                    break
-                
-                sys.stdout.write(f"\033[92m{chunk}\033[0m")
-                sys.stdout.flush()
-                res += chunk
-                temp_ids.append(tid)
-            
-            # --- FIX : FORCER LE FORMAT .0 ---
-            if res:
-                # Si c'est un entier (pas de point, pas de 'e')
-                if "." not in res and "e" not in res.lower():
-                    sys.stdout.write(f"\033[92m.0\033[0m")
-                    res += ".0"
-                return float(res)
-            return 0.0
-        
-        else: # STRINGS (Fix pour les Regex incomplets)
-            for i in range(120):
-                logits = np.array(self.llm.get_logits_from_input_ids(temp_ids), dtype=np.float32)
-                while len(logits.shape) > 1: logits = logits[-1]
-                
+            max_tokens = 20
+            color = "\033[92m"  # Vert
+        else:
+            allowed = None
+            max_tokens = 200
+            color = "\033[93m"  # Jaune
+
+        for i in range(max_tokens):
+            if p_type == "number":
+                chosen = self._get_masked_next(current_context_ids, allowed)
+            else:
+                logits = np.array(self.llm.get_logits_from_input_ids(current_context_ids), dtype=np.float32)
+                # tant qu il reste pls dimensions à la structure, on choisit son dernier element
+                while len(logits.shape) > 1:
+                    logits = logits[-1]
                 if i == 0:
-                    logits[self._quote_id] = NEG_INF
-                    for tid in self._tokens_stop:
-                        if tid < len(logits): logits[tid] = NEG_INF
-                
+                    logits[self.quote_id] = NEG_INF  # Empêche de fermer direct
                 chosen = int(np.argmax(logits))
-                if chosen == self._quote_id:
-                    break
-                
-                chunk = self.llm.decode([chosen])
-                # On ne break sur \n que si on a déjà du texte (évite les sorties prématurées)
-                if "\n" in chunk and len(res) > 0:
-                    break
-                
-                sys.stdout.write(f"\033[93m{chunk}\033[0m")
-                sys.stdout.flush()
-                res += chunk
-                temp_ids.append(chosen)
-                
-            return res.strip()
 
-    def process_prompt(self, prompt: str, functions: List[FunctionDefinition], static_ids: List[int]) -> FunctionCallResult:
-        # 1. Sélection du Nom
-        name_ids = static_ids + self.llm.encode(f"\nQuery: {prompt}\nFunction:")[0].tolist()
-        selected_name = self._force_name(name_ids, functions)
-        fn_def = next(f for f in functions if f.name == selected_name)
+            # Pour les str, comme on a forcé l'ouverture d'un guillemet
+            # au début de l'instruction ("),
+            # l'IA doit normalement fermer ce guillemet
+            # pour signaler la fin de sa réponse.
+            # Pour les numbers : (p_type == "number" and
+            # chosen in self._tokens_stop) : L'IA s'arrête lorsqu'elle tape
+            # un caractère qui ne fait plus partie du nombre
+            # (un espace, une virgule, ou un saut de ligne).
+            # Si on attend un nombre ET que le token est dans ta liste
+            # de "caractères d'arrêt", on valide la fin de la saisie.
+            is_stop_token = (chosen == self.quote_id) or (p_type == "number" and chosen in self._tokens_stop)
 
-        # 2. Extraction des Paramètres (Context Reset)
-        final_params = {}
-        for p_name, p_info in fn_def.parameters.items():
-            sys.stdout.write(f" | {p_name}: ")
+            if is_stop_token:
+                if p_type == "number" and extracted_value:
+                    if "." not in extracted_value and "e" not in extracted_value.lower():
+                        sys.stdout.write(f"{color}.0\033[0m")
+                        extracted_value += ".0"
+                break
 
-            # Utilisation de l'ancre JSON pour stabiliser l'extraction
-            instruction = f"\nTask: {prompt}\nFunction: {selected_name}\n{p_name}="
-            if p_info.type == "string": instruction += '"'
+            decoded_token = self.llm.decode([chosen])
 
-            p_ids = static_ids + self.llm.encode(instruction)[0].tolist()
-            val = self._extract_value(p_ids, p_info.type)
+            # Sécurité "anti_deraillage" pour le LLM
+            if "\n" in decoded_token and i > 0:
+                break
 
-            if isinstance(val, str) and p_name == "regex":
-                # On ferme les parenthèses manquantes
-                while val.count('(') > val.count(')'):
-                    val += ')'
-                # On ferme les crochets manquants
-                while val.count('[') > val.count(']'):
-                    val += ']'
+            sys.stdout.write(f"{color}{decoded_token}\033[0m")
+            sys.stdout.flush()
 
-                # Nettoyage de sécurité : si le modèle a inclus un guillemet de fin par erreur
-                val = val.replace('"', '').strip()
+            extracted_value += decoded_token
+            current_context_ids.append(chosen)
 
-            if p_name == "replacement" and isinstance(val, str):
-                # Si l'utilisateur demande des asterisks et que le modèle en met trop
-                # On réduit les suites d'étoiles à une seule étoile
-                if "**" in val:
-                    val = "*"
-                val = val.replace('"', '').strip()
+        if p_type == "number":
+            try:
+                return float(extracted_value) if extracted_value else 0.0
+            except ValueError:
+                return 0.0
+   
+        return extracted_value.strip()
 
-            final_params[p_name] = val
-
-        return FunctionCallResult(prompt=prompt, name=selected_name, parameters=final_params)
-
-    def run(self, functions: List[FunctionDefinition], callables: List[UserPrompt], output_path: str):
-        # --- Préparation des données statiques ---
+    def run(
+            self,
+            functions: List[FunctionDefinition],
+            user_prompts: List[UserPrompt],
+            output_path: str):
+        # model_dump : methode de Pydantic qui prend toutes les donnees 
+        # stockees dans une instance de classe et les "decharge" dans un
+        # format standars (dico)
         tools_list = [f.model_dump() for f in functions]
-        static_ids = self.llm.encode(f"System: Tool Extractor. Tools: {json.dumps(tools_list)}")[0].tolist()
+        # recupere les IDs des tokens du system_prompt qui comprend
+        # les fonctions disponibles en format JSON
+        # on recupere le premier element de la matrice renvoyee
+        # (comme on envoie un seul
+        # system prompt). on le transforme em liste
+        # (souvent renvoie un tenseur py torch ou un tqblequ numpy)
+        system_prompt_ids = self.llm.encode(
+            f"System: Tool Extractor. "
+            f"Tools: {json.dumps(tools_list)}"
+            )[0].tolist()
 
         results = []
-        for idx, call in enumerate(callables):
-            sys.stdout.write(f"\n[{idx+1}/{len(callables)}] Prompt: {call.prompt[:30]}...")
-            
-            # --- APPEL AU PROCESSEUR ---
-            # On utilise le processeur pour faire le "gros du travail"
-            res = self.prompt_processor.process(call.prompt, functions, static_ids)
-            
+        for index, user_prompt in enumerate(user_prompts):
+            sys.stdout.write(f"\n[{index+1}/{len(user_prompts)}] "
+                             f"Prompt: {user_prompt.prompt[:50]}...")
+
+            res = self.prompt_processor.process(
+                user_prompt.prompt,
+                functions,
+                system_prompt_ids
+            )
+
             results.append(res.model_dump())
             sys.stdout.flush()
-            
-        # --- Sauvegarde finale ---
+
         with open(output_path, "w", encoding="utf-8") as f:
+            # Par défaut (True) : Python remplace tous les caractères
+            # non-anglais par des codes ("é" devient \u00e9)
+            # Avec False : Python écrit les caractères tels quels (en UTF-8).
             json.dump(results, f, indent=4, ensure_ascii=False)

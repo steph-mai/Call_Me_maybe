@@ -1,53 +1,44 @@
 import sys
-import os
 from src.constrained_decoder import ConstrainedDecoder
 from src.load import Loader
 
+
 def main():
-    # 1. Nettoyage initial du terminal pour le confort visuel
-    os.system('cls' if os.name == 'nt' else 'clear')
-    
     loader = Loader()
     output_file_path = "data/output/function_calling_results.json"
 
-    print("\033[1m--- CALL ME MAYBE: HIGH PERFORMANCE FSM ---\033[0m\n", flush=True)
+    print("\033[1m--- CALL ME MAYBE ---\033[0m\n", flush=True)
 
-    # 2. Chargement des données
     try:
-        functions = loader.get_functions("data/input/functions_definition.json")
+        functions = loader.get_functions(
+            "data/input/functions_definition.json"
+            )
         prompts = loader.get_prompts("data/input/function_calling_tests.json")
-        print(f"[*] Input: {len(prompts)} prompts loaded.", flush=True)
+        print(f"Input: {len(prompts)} prompts loaded.", flush=True)
     except Exception as e:
         print(f"\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 
-    # 3. Initialisation (Le modèle et le vocabulaire sont chargés ici)
     try:
-        print("[*] Initializing LLM & Vocab Mapping...", end="", flush=True)
+        print("Initializing LLM & Vocab Mapping...", end="", flush=True)
         constrained_decoder = ConstrainedDecoder()
         print(" Done.", flush=True)
     except Exception as e:
         print(f"\n\033[91m[ERROR]\033[0m {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 
-    # 4. Lancement du Pipeline
     if prompts:
         try:
             print("\n\033[1mStarting Real-Time Generation:\033[0m", flush=True)
             print("-" * 50, flush=True)
-            
-            # La méthode .run() va maintenant imprimer chaque token en couleur
-            constrained_decoder.run(
-                functions=functions, 
-                callables=prompts, 
-                output_path=output_file_path
-            )
 
-            print("\n" + "-" * 50, flush=True)
-            print(f"\n\033[92m[COMPLETED]\033[0m All results saved to: {output_file_path}", flush=True)
-            
+            constrained_decoder.run(functions, prompts, output_file_path)
+            print(f"\n\033[92m[COMPLETED]\033[0m "
+                  f"All results saved to: {output_file_path}", flush=True)
+
         except Exception as e:
-            print(f"\n\033[91m[CRITICAL ERROR during generation]\033[0m {e}", flush=True)
+            print(f"\n\033[91m[CRITICAL ERROR during generation]"
+                  f"\033[0m {e}", flush=True)
     else:
         print("\033[93m[INFO]\033[0m No prompts found to process.", flush=True)
 
