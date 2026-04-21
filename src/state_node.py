@@ -3,7 +3,8 @@ from typing import Dict, List
 
 class StateNode:
     # Le nom Trie vient du mot anglais retrieval (récupération).
-    # Le but est de récupérer une information très vite en suivant un chemin tracé.
+    # Le but est de récupérer une information très vite
+    # en suivant un chemin tracé.
     """
     Represents a single state in a Prefix Trie used for constrained decoding.
 
@@ -21,12 +22,12 @@ class StateNode:
         name (str): The full string representation of the function name,
             stored only at terminal nodes for easy retrieval.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self.children: Dict[int, 'StateNode'] = {}
         self.is_terminal: bool = False
         self.name: str = ""
 
-    def insert_name(self, name_ids: List[int], name: str):
+    def insert_name(self, name_ids: List[int], name: str) -> None:
         """
         Inserts a function name into the state machine.
 

@@ -1,5 +1,4 @@
 import sys
-import json
 from typing import List
 from src.models import FunctionDefinition, FunctionCallResult
 
@@ -9,7 +8,7 @@ class PromptProcessor:
     Orchestrates the high-level workflow of turning a user prompt
     into a validated FunctionCallResult.
     """
-    def __init__(self, decoder):
+    def __init__(self, decoder) -> None:
         self.decoder = decoder
 
     def process(self,
@@ -37,7 +36,11 @@ class PromptProcessor:
         for p_name, p_info in selected_function_def.parameters.items():
             sys.stdout.write(f" | {p_name}: ")
 
-            instruction = f"\nTask: {user_prompt}\nFunction: {selected_name}\n{p_name}="
+            instruction = (
+                f"\nTask: {user_prompt}\n"
+                f"Function: {selected_name}\n"
+                f"{p_name}="
+            )
             if p_info.type == "string":
                 instruction += '"'
 
