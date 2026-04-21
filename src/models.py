@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Literal, Dict, Any
+from typing import Literal, Dict
 
 
 class ParameterDefinition(BaseModel):
@@ -16,6 +16,7 @@ class FunctionDefinition(BaseModel):
 
 class UserPrompt(BaseModel):
     prompt: str = Field(..., min_length=1)
+
 
 class FunctionCallResult(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)

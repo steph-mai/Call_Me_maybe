@@ -17,3 +17,8 @@ models/
 
 #IDE
 .vscode/
+
+function_calling_results.json
+
+llm_sdk
+

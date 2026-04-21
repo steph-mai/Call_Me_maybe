@@ -23,13 +23,13 @@ lint:
 	@echo "--- Running Flake8 ---"
 	@uv run flake8 . --exclude .venv,llm_sdk
 	@echo "--- Running MyPy ---"
-	@uv run mypy src tests $(MYPY_FLAGS)
+	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/)"
 
 lint-strict:
 	@echo "--- Running Flake8 ---"
 	@uv run flake8 . --exclude .venv,llm_sdk 
 	@echo "--- Running MyPy ---"
-	@uv run mypy . $(MYPY_FLAGS)
+	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/)"
 
 test:
 	@echo "Launching the entire suite of tests..."

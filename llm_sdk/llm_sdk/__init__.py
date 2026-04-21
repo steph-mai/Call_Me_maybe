@@ -75,7 +75,7 @@ class Small_LLM_Model:
 
 
     def encode(self, text: str) -> torch.Tensor:
-        """Tokenise *text* and return a 2-D ``input_ids`` tensor on the target device."""
+        """Tokenise *text* and return a 2-D ``prompt_ids`` tensor on the target device."""
         ids = self._tokenizer.encode(text, add_special_tokens=False)
         return torch.tensor([ids], device=self._device, dtype=torch.long)
 
@@ -87,7 +87,7 @@ class Small_LLM_Model:
         return self._tokenizer.decode(ids, skip_special_tokens=True)
 
 
-    def get_logits_from_input_ids(self, input_ids: list[int]) -> list[float]:
+    def get_logits_from_prompt_ids(self, input_ids: list[int]) -> list[float]:
         """
         Given a list of input token ids, return the raw logits (no softmax) for the next token.
         """
