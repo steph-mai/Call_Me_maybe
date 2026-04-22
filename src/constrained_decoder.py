@@ -1,9 +1,8 @@
 import json
 import re
-import sys
 import numpy as np
-from typing import Any, List, Set
-from llm_sdk import Small_LLM_Model
+from typing import Any, List, Set, Dict, cast
+from llm_sdk import Small_LLM_Model  # type: ignore
 from src.models import FunctionDefinition
 from src.state_node import StateNode
 
@@ -11,31 +10,46 @@ NEG_INF: float = -1e11
 
 
 class ConstrainedDecoder:
+    """
+    Handles constrained decoding logic by masking logits
+    to force the LLM to follow specific schemas or types.
+    """
     def __init__(self, model_name: str) -> None:
+        """
+        Initializes the decoder by loading the model vocabulary and
+        pre-filtering token sets for numeric and boolean constraints.
+        """
         self.llm = Small_LLM_Model(model_name=model_name)
 
         self.vocab = self._load_vocab()
 
         self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
         self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
-        self.quote_id = self.llm.encode('"')[0].tolist()[-1]
         self.tokens_boolean = self._build_set(r'^(True|False)$')
+        self.quote_id = self.llm.encode('"')[0].tolist()[-1]
 
     def _load_vocab(self) -> dict:
-        """Charge le vocabulaire pour Qwen ou SmolLM2."""
+        """
+        Loads vocabulary from JSON file (Qwen)
+        or from internal tokenizer (e.g., SmolLM2).
+        """
         try:
-            # Priorité au fichier JSON (Qwen / SDK)
-            with open(self.llm.get_path_to_vocab_file(), "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(
+                self.llm.get_path_to_vocab_file(), "r", encoding="utf-8"
+            ) as f:
+                data = json.load(f)
+                # json.load returns Any
+                # Use cast to transform Any en Dict
+                return cast(Dict[str, int], data)
         except Exception:
-            # Repli sur le tokenizer interne (SmolLM2 / HF)
-            return self.llm.tokenizer.get_vocab()
+            return cast(Dict[str, int], self.llm.tokenizer.get_vocab())
 
     def _build_set(self, pattern: str) -> Set[int]:
+        """Filters vocabulary to find token IDs matching a regex pattern."""
         allowed = set()
         for tok_str, tid in self.vocab.items():
-            # Nettoyage : on enlève les espaces classiques (\s) 
-            # et les préfixes spécifiques à Qwen (\u0120) et SmolLM2 (Ġ)
+            # Clean control characters and model-specific prefixes
+            # (Ġ ou \u0120)
             clean = re.sub(r'[\s\u0120Ġ]+', '', tok_str)
 
             if clean and re.match(pattern, clean):
@@ -47,72 +61,80 @@ class ConstrainedDecoder:
             ids: List[int],
             allowed: Set[int] | None
             ) -> int:
-        # Conversion : On transforme cela en tableau NumPy pour faire
-        # des calculs rapides. float32 : definit le type de donnees
-        # et le nombre de bits utilises pour les stocker
+        """
+        Calculates the next token ID by applying a mask to logits.
+        Only allowed tokens retain their original logit values.
+        """
         logits = np.array(
             self.llm.get_logits_from_input_ids(ids),
             dtype=np.float32
         )
-        # Le dernier mot : Le modèle renvoie souvent les scores pour toute la
-        # phrase. on ne veut que les prédictions pour le tout dernier token
-        # (celui qui va être généré). On réduit donc le tableau pour ne garder
-        # Le shape precise la forme du modele renvoyé.
+        # The model returns a tensor of scores. We use 'shape'
+        # to check its dimensions and isolate the 1D vector (logits)
+        # of the last token for the next prediction.
         while len(logits.shape) > 1:
             logits = logits[-1]
-        # on remplit un tableau de même forme que celui des logits
-        # avec des NEG_INF
-        mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
-        # len(mask) représente la taille totale du dictionnaire du modèle
-        # (par exemple, 32 000 tokens).
-        # La condition if tid < len(mask): vérifie que l'identifiant
-        # du token (tid) que l on veut autoriser existe bien
-        # dans l'index du modèle.
-        for tid in allowed:
-            if tid < len(mask):
-                mask[tid] = logits[tid]
 
-        return int(np.argmax(mask))
+        # Apply the mask: default to negative infinity
+        if allowed is not None:
+            mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
+
+            # len(mask) is the vocabulary size. This check ensures the token ID
+            # is within the valid range of the model's index.
+            for tid in allowed:
+                if tid < len(mask):
+                    mask[tid] = logits[tid]
+            return int(np.argmax(mask))
+
+        return int(np.argmax(logits))
 
     def force_name(self,
                    full_prompt_ids: List[int],
                    functions: List[FunctionDefinition]
                    ) -> str:
-        root = StateNode()
+        """
+        Forces the model to select a valid function name by
+        traversing a prefix tree (Trie) of available function names.
+        """
+        trie_root = StateNode()
+
+        # Initialize the prefix tree with all possible function names
         for f in functions:
-            root.insert_name(self.llm.encode(f.name)[0].tolist(), f.name)
-        curr = root
-        current_context_ids = list(full_prompt_ids)
+            name_tokens = self.llm.encode(f.name)[0].tolist()
+            trie_root.insert_name(name_tokens, f.name)
+
+        current_node = trie_root
+        # sequence starts with the prompt and grows as tokens are predicted
+        prompt_sequence = list(full_prompt_ids)
+
         while True:
-            allowed = set(curr.children.keys())
-            # tant qu il y a des enfants
+            # The allowed tokens are the children of the current node.
+            allowed = set(current_node.children.keys())
+
             if not allowed:
                 break
-            # Le Masquage: S'il y a plusieurs choix possibles (ex: deux
-            # fonctions commencent par "fn_"),
-            # on appelle _get_masked_next.
-            # Le modèle d'IA va choisir le token le plus probable uniquement
-            # parmi ceux autorisés.
-            # S'il n'y a qu'un seul choix,
-            # on ne demande même pas à l'IA (gain de temps), on prend
-            # le seul token dispo (next(iter(allowed))).
+
+            # If multiple paths exist, mask the logits; otherwise,
+            # take the only choice
             if len(allowed) > 1:
-                chosen = self._get_masked_next(current_context_ids, allowed)
+                chosen = self._get_masked_next(prompt_sequence, allowed)
             else:
-                # iter transforme le set en iterable
-                # avec next on recupere le 1er(ici le seul élément)
+                # Convert the set to an iterable and retrieve the first
+                # (and only) element
                 chosen = next(iter(allowed))
 
-            current_context_ids.append(chosen)
+            prompt_sequence.append(chosen)
 
-            curr = curr.children[chosen]
+            current_node = current_node.children[chosen]
 
-            if curr.is_terminal and not curr.children:
-                return curr.name
-        return curr.name
+        return current_node.name
 
     def extract_param_value(self, ids: List[int], p_type: str) -> Any:
-        current_context_ids = list(ids)
+        """
+        Extracts a single parameter value from the LLM based on its type.
+        Supports number, boolean, and string extraction.
+        """
+        prompt_sequence = list(ids)
         extracted_value = ""
 
         if p_type == "number":
@@ -127,33 +149,28 @@ class ConstrainedDecoder:
 
         for i in range(max_tokens):
             if p_type == "number" or p_type == "boolean":
-                chosen = self._get_masked_next(current_context_ids, allowed)
+                chosen = self._get_masked_next(prompt_sequence, allowed)
+
             else:
                 logits = np.array(
-                    self.llm.get_logits_from_input_ids(current_context_ids),
+                    self.llm.get_logits_from_input_ids(prompt_sequence),
                     dtype=np.float32
                 )
-                # tant qu il reste pls dimensions à la structure,
-                # on choisit son dernier element
+                # Reduce the tensor (Batch, Sequence, Vocab) to a 1D vector
+                # of the last token's raw scores
                 while len(logits.shape) > 1:
                     logits = logits[-1]
+
+                # Prevent immediate closing of string
                 if i == 0:
-                    logits[self.quote_id] = NEG_INF  # Empêche de fermer direct
+                    logits[self.quote_id] = NEG_INF
                 chosen = int(np.argmax(logits))
 
-            # Pour les str, comme on a forcé l'ouverture d'un guillemet
-            # au début de l'instruction ("),
-            # l'IA doit normalement fermer ce guillemet
-            # pour signaler la fin de sa réponse.
-            # Pour les numbers : (p_type == "number" and
-            # chosen in self._tokens_stop) : L'IA s'arrête lorsqu'elle tape
-            # un caractère qui ne fait plus partie du nombre
-            # (un espace, une virgule, ou un saut de ligne).
-            # Si on attend un nombre ET que le token est dans ta liste
-            # de "caractères d'arrêt", on valide la fin de la saisie.
+            # Stop if a termination token is found
             is_stop_token = (
                 (chosen == self.quote_id) or
-                ((p_type == "number" or p_type == "boolean") and chosen in self._tokens_stop)
+                ((p_type == "number" or p_type == "boolean") and
+                 chosen in self._tokens_stop)
             )
             if is_stop_token:
                 if p_type == "number" and extracted_value:
@@ -166,17 +183,11 @@ class ConstrainedDecoder:
 
             decoded_token = self.llm.decode([chosen])
 
-            # Sécurité "anti_deraillage" pour le LLM
+            # Safety break to prevent hallucinations
             if "\n" in decoded_token and i > 0:
                 break
 
             extracted_value += decoded_token
-            current_context_ids.append(chosen)
-
-        if p_type == "number":
-            try:
-                return float(extracted_value) if extracted_value else 0.0
-            except ValueError:
-                return 0.0
+            prompt_sequence.append(chosen)
 
         return extracted_value.strip()

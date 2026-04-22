@@ -1,33 +1,103 @@
 import sys
 import json
-from typing import List, Any
+from pathlib import Path
+from typing import List, Any, Dict, Optional
 from src.models import FunctionDefinition, FunctionCallResult, UserPrompt
+from src.constrained_decoder import ConstrainedDecoder
 
 
 class PromptProcessor:
     """
-    Orchestrates the high-level workflow of turning a user prompt
-    into a validated FunctionCallResult.
+    Manages the process of converting a user prompt into a validated
+    function call, using constrained decoding.
     """
-    def __init__(self, decoder) -> None:
+    def __init__(self, decoder: ConstrainedDecoder) -> None:
         self.decoder = decoder
-        # dico qui va stocker en cache les prompts/reponses
-        self._cache = {}
+        # Cache to store results and avoid redundant LLM calls
+        self._cache: Dict[str, FunctionCallResult] = {}
+
+    def run(
+            self,
+            functions: List[FunctionDefinition],
+            user_prompts: List[UserPrompt],
+            output_path: str | Path
+            ) -> None:
+        """
+        Main entry point: processes a list of prompts and saves results
+        to a JSON file.
+        Includes caching logic to skip already processed prompts.
+        """
+        # Convert Pydantic models to standard dictionaries
+        # using the pydantic method 'model_dump'
+        tools_list = [f.model_dump() for f in functions]
+
+        system_prompt: str = (
+            f"System: Tool Extractor. "
+            f"Tools: {json.dumps(tools_list)}"
+        )
+
+        # Tokenize the system prompt containing available tools
+        system_prompt_ids = self.decoder.llm.encode(
+            system_prompt
+            )[0].tolist()
+
+        results: list[FunctionCallResult] = []
+
+        for index, user_prompt in enumerate(user_prompts):
+            prompt_text = user_prompt.prompt
+
+            # Cache check
+            if prompt_text in self._cache:
+                result = self._cache[prompt_text]
+                sys.stdout.write(
+                    f"\n[{index+1}] Prompt: {prompt_text[:30]}... (CACHED)"
+                    )
+                results.append(result)
+                continue
+
+            sys.stdout.write(f"\n[{index+1}/{len(user_prompts)}] "
+                             f"Prompt: {user_prompt.prompt[:80]}...")
+
+            res: FunctionCallResult = self.process(
+                user_prompt.prompt,
+                functions,
+                system_prompt_ids
+            )
+
+            # Store result in cache
+            self._cache[prompt_text] = res
+
+            results.append(res)
+
+        # Save results to file
+        output_data = [r.model_dump() for r in results]
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, indent=4, ensure_ascii=False)
 
     def process(self,
                 user_prompt: str,
                 functions: List[FunctionDefinition],
                 system_prompt_ids: List[int]
                 ) -> FunctionCallResult:
+        """
+        Executes the function calling pipeline:
+        1. Identifies the function name.
+        2. Iteratively extracts each required parameter.
+        3. Validates and cleans output via advanced recovery.
+        """
+
+        query_prompt = f"\nQuery: {user_prompt}\nFunction:"
 
         name_selection_ids = system_prompt_ids + self.decoder.llm.encode(
-            f"\nQuery: {user_prompt}\nFunction:"
+            query_prompt
             )[0].tolist()
+
         selected_name = self.decoder.force_name(name_selection_ids, functions)
 
         sys.stdout.write(f"\n  [NAME]: \033[94m{selected_name}\033[0m")
 
-        selected_function_def = None
+        # Retrieve the matching function definition
+        selected_function_def: Optional[FunctionDefinition] = None
         for f in functions:
             if f.name == selected_name:
                 selected_function_def = f
@@ -38,6 +108,8 @@ class PromptProcessor:
                 )
 
         final_params: dict[str, float | int | bool | str] = {}
+
+        # Iterative parameter extraction
         for p_name, p_info in selected_function_def.parameters.items():
 
             instruction = (
@@ -45,6 +117,8 @@ class PromptProcessor:
                 f"Function: {selected_name}\n"
                 f"{p_name}="
             )
+
+            # Pre-append a quote for string types to guide the model
             if p_info.type == "string":
                 instruction += '"'
 
@@ -53,26 +127,17 @@ class PromptProcessor:
                 + self.decoder.llm.encode(instruction)[0].tolist()
             )
 
+            # Constrained extraction based on parameter type
             raw_value = self.decoder.extract_param_value(
                 full_prompt_ids,
                 p_info.type)
-            
-            raw_value = self._advanced_recovery(p_name, p_info.type, raw_value)
 
-            # if isinstance(raw_value, str):
-            #     raw_value = raw_value.replace('"', '').strip()
-            #     if p_name == "regex":
-            #         while raw_value.count('(') > raw_value.count(')'):
-            #             raw_value += ')'
-            #         while raw_value.count('[') > raw_value.count(']'):
-            #             raw_value += ']'
-            #     if p_name == "replacement" and "**" in raw_value:
-            #         raw_value = "*"
+            # Post-processing and error recovery
+            final_value = self._advanced_recovery(
+                p_name, p_info.type,
+                raw_value)
 
-            # if p_info.type == "boolean":
-            #     raw_value = True if raw_value.strip() == "True" else False
-
-            final_params[p_name] = raw_value
+            final_params[p_name] = final_value
 
             if p_info.type == "number":
                 color = "\033[92m"
@@ -80,7 +145,7 @@ class PromptProcessor:
                 color = "\033[95m"
             else:
                 color = "\033[93m"
-            sys.stdout.write(f" | {p_name}: {color}{raw_value}\033[0m")
+            sys.stdout.write(f" | {p_name}: {color}{final_value}\033[0m")
             sys.stdout.flush()
 
         return FunctionCallResult(
@@ -89,90 +154,35 @@ class PromptProcessor:
             parameters=final_params
             )
 
-    def run(
-            self,
-            functions: List[FunctionDefinition],
-            user_prompts: List[UserPrompt],
-            output_path: str
-            ) -> None:
-        # model_dump : methode de Pydantic qui prend toutes les donnees
-        # stockees dans une instance de classe et les "decharge" dans un
-        # format standars (dico)
-        tools_list = [f.model_dump() for f in functions]
-        # recupere les IDs des tokens du system_prompt qui comprend
-        # les fonctions disponibles en format JSON
-        # on recupere le premier element de la matrice renvoyee
-        # (comme on envoie un seul
-        # system prompt). on le transforme em liste
-        # (souvent renvoie un tenseur py torch ou un tqblequ numpy)
-        system_prompt_ids = self.decoder.llm.encode(
-            f"System: Tool Extractor. "
-            f"Tools: {json.dumps(tools_list)}"
-            )[0].tolist()
+    def _advanced_recovery(
+            self, p_name: str, p_type: str, raw_value: Any
+            ) -> Any:
+        """Centralizes cleaning and repair mechanisms"""
 
-        results: List[FunctionCallResult] = []
-        for index, user_prompt in enumerate(user_prompts):
-            prompt_text = user_prompt.prompt
-
-            if prompt_text in self._cache:
-                res_dict = self._cache[prompt_text]
-                sys.stdout.write(f"\n[{index+1}] Prompt: {prompt_text[:30]}... (CACHED)")
-                results.append(res_dict)
-                continue
-                
-            sys.stdout.write(f"\n[{index+1}/{len(user_prompts)}] "
-                             f"Prompt: {user_prompt.prompt[:50]}...")
-
-            res: FunctionCallResult = self.process(
-                user_prompt.prompt,
-                functions,
-                system_prompt_ids
-            )
-
-            res_dict = res.model_dump()
-            self._cache[prompt_text] = res_dict
-
-            results.append(res_dict)
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            # Par défaut (True) : Python remplace tous les caractères
-            # non-anglais par des codes ("é" devient \u00e9)
-            # Avec False : Python écrit les caractères tels quels (en UTF-8).
-            json.dump(results, f, indent=4, ensure_ascii=False)
-
-    def _advanced_recovery(self, p_name: str, p_type: str, raw_value: Any) -> Any:
-        """Centralise les mécanismes de récupération et de nettoyage."""
-        
-        # --- 1. Gestion des Booléens (Normalisation) ---
         if p_type == "boolean":
-            # Accepte différentes formes de "vrai" au cas où le masque laisserait passer un token proche
-            if str(raw_value).strip().lower() in ["true", "1", "yes", "y", "t"]:
+            if str(raw_value).strip().lower() in (
+                ["true", "1", "yes", "y", "t"]
+            ):
                 return True
             return False
 
-        # --- 2. Réparation des chaînes (Regex & Artefacts) ---
         if isinstance(raw_value, str):
-            # Nettoyage des guillemets et espaces
             val = raw_value.replace('"', '').strip()
-            
-            # Réparation des Regex (Parenthèses et Crochets)
+
             if p_name == "regex":
                 for opening, closing in [('(', ')'), ('[', ']')]:
                     while val.count(opening) > val.count(closing):
                         val += closing
-            
-            # Correction des répétitions bizarres (ton fix sur les **)
+
             if "**" in val:
                 val = val.replace("**", "*")
-                
+
             return val
-        
+
         if p_type == "number":
             try:
                 return float(raw_value)
             except (ValueError, TypeError):
-                # Si le float() échoue, on renvoie une valeur par défaut cohérente
-                # plutôt que de laisser le programme planter.
                 return 0.0
 
         return raw_value

@@ -47,14 +47,16 @@ class Loader:
         Loads, parses, and validates function definitions from a JSON file.
         Returns a list of validated FunctionDefinition Pydantic objects
         """
-        raw_functions = self.load_file(file_path)
+        raw_functions: list[dict] = self.load_file(file_path)
 
         if not isinstance(raw_functions, list):
             raise ValueError(
                 f"There is no valid list of functions in {file_path} "
                 )
 
-        functions = [FunctionDefinition(**fn) for fn in raw_functions]
+        functions: list[FunctionDefinition] = [
+            FunctionDefinition(**fn) for fn in raw_functions
+            ]
 
         if not functions:
             raise ValueError(
@@ -74,7 +76,7 @@ class Loader:
             raise ValueError(
                 f"There is no valid list of prompts in {file_path} ")
 
-        prompts = [UserPrompt(**pr) for pr in raw_prompts]
+        prompts: list[UserPrompt] = [UserPrompt(**pr) for pr in raw_prompts]
 
         if not prompts:
             raise ValueError(
