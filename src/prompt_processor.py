@@ -1,6 +1,6 @@
 import sys
 import json
-from typing import List
+from typing import List, Any
 from src.models import FunctionDefinition, FunctionCallResult, UserPrompt
 
 
@@ -11,6 +11,8 @@ class PromptProcessor:
     """
     def __init__(self, decoder) -> None:
         self.decoder = decoder
+        # dico qui va stocker en cache les prompts/reponses
+        self._cache = {}
 
     def process(self,
                 user_prompt: str,
@@ -54,20 +56,30 @@ class PromptProcessor:
             raw_value = self.decoder.extract_param_value(
                 full_prompt_ids,
                 p_info.type)
+            
+            raw_value = self._advanced_recovery(p_name, p_info.type, raw_value)
 
-            if isinstance(raw_value, str):
-                raw_value = raw_value.replace('"', '').strip()
-                if p_name == "regex":
-                    while raw_value.count('(') > raw_value.count(')'):
-                        raw_value += ')'
-                    while raw_value.count('[') > raw_value.count(']'):
-                        raw_value += ']'
-                if p_name == "replacement" and "**" in raw_value:
-                    raw_value = "*"
+            # if isinstance(raw_value, str):
+            #     raw_value = raw_value.replace('"', '').strip()
+            #     if p_name == "regex":
+            #         while raw_value.count('(') > raw_value.count(')'):
+            #             raw_value += ')'
+            #         while raw_value.count('[') > raw_value.count(']'):
+            #             raw_value += ']'
+            #     if p_name == "replacement" and "**" in raw_value:
+            #         raw_value = "*"
+
+            # if p_info.type == "boolean":
+            #     raw_value = True if raw_value.strip() == "True" else False
 
             final_params[p_name] = raw_value
 
-            color = "\033[92m" if p_info.type == "number" else "\033[93m"
+            if p_info.type == "number":
+                color = "\033[92m"
+            elif p_info.type == "boolean":
+                color = "\033[95m"
+            else:
+                color = "\033[93m"
             sys.stdout.write(f" | {p_name}: {color}{raw_value}\033[0m")
             sys.stdout.flush()
 
@@ -100,6 +112,14 @@ class PromptProcessor:
 
         results: List[FunctionCallResult] = []
         for index, user_prompt in enumerate(user_prompts):
+            prompt_text = user_prompt.prompt
+
+            if prompt_text in self._cache:
+                res_dict = self._cache[prompt_text]
+                sys.stdout.write(f"\n[{index+1}] Prompt: {prompt_text[:30]}... (CACHED)")
+                results.append(res_dict)
+                continue
+                
             sys.stdout.write(f"\n[{index+1}/{len(user_prompts)}] "
                              f"Prompt: {user_prompt.prompt[:50]}...")
 
@@ -109,10 +129,50 @@ class PromptProcessor:
                 system_prompt_ids
             )
 
-            results.append(res.model_dump())
+            res_dict = res.model_dump()
+            self._cache[prompt_text] = res_dict
+
+            results.append(res_dict)
 
         with open(output_path, "w", encoding="utf-8") as f:
             # Par défaut (True) : Python remplace tous les caractères
             # non-anglais par des codes ("é" devient \u00e9)
             # Avec False : Python écrit les caractères tels quels (en UTF-8).
             json.dump(results, f, indent=4, ensure_ascii=False)
+
+    def _advanced_recovery(self, p_name: str, p_type: str, raw_value: Any) -> Any:
+        """Centralise les mécanismes de récupération et de nettoyage."""
+        
+        # --- 1. Gestion des Booléens (Normalisation) ---
+        if p_type == "boolean":
+            # Accepte différentes formes de "vrai" au cas où le masque laisserait passer un token proche
+            if str(raw_value).strip().lower() in ["true", "1", "yes", "y", "t"]:
+                return True
+            return False
+
+        # --- 2. Réparation des chaînes (Regex & Artefacts) ---
+        if isinstance(raw_value, str):
+            # Nettoyage des guillemets et espaces
+            val = raw_value.replace('"', '').strip()
+            
+            # Réparation des Regex (Parenthèses et Crochets)
+            if p_name == "regex":
+                for opening, closing in [('(', ')'), ('[', ']')]:
+                    while val.count(opening) > val.count(closing):
+                        val += closing
+            
+            # Correction des répétitions bizarres (ton fix sur les **)
+            if "**" in val:
+                val = val.replace("**", "*")
+                
+            return val
+        
+        if p_type == "number":
+            try:
+                return float(raw_value)
+            except (ValueError, TypeError):
+                # Si le float() échoue, on renvoie une valeur par défaut cohérente
+                # plutôt que de laisser le programme planter.
+                return 0.0
+
+        return raw_value

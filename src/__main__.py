@@ -25,6 +25,13 @@ def main() -> None:
         default="data/output/function_calling_results.json",
         help="Path to output file or directory"
     )
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="Qwen/Qwen3-0.6B",
+        help="Model name or path (e.g., 'HuggingFaceTB/SmolLM2-360M')"
+    )
+    
     args = parser.parse_args()
 
     loader = Loader()
@@ -48,10 +55,10 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        sys.stdout.write("Initializing LLM & Vocab Mapping...")
+        sys.stdout.write("Initializing LLM ({args.model})...")
         sys.stdout.flush()
 
-        constrained_decoder = ConstrainedDecoder()
+        constrained_decoder = ConstrainedDecoder(model_name=args.model)
 
         sys.stdout.write(" Done.\n")
         sys.stdout.flush()
