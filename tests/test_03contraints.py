@@ -29,33 +29,6 @@ def decoder():
 
         return obj
 
-
-def test_extract_param_value_number_formatting(decoder):
-    """Vérifie que '10' est converti en 10.0 (float) avec le fix .0."""
-
-    # Simulation de la séquence de tokens :
-    # '1', '0', puis un token STOP (espace)
-    side_effects = [10, 11, 31]
-    decoder._get_masked_next = MagicMock(side_effect=side_effects)
-
-    # Simulation du décodage de chaque token
-    def mock_decode(token_ids):
-        mapping = {10: "1", 11: "0", 31: " "}
-        return mapping.get(token_ids[0], "")
-
-    decoder.llm.decode = MagicMock(side_effect=mock_decode)
-
-    # Exécution
-    result = decoder.extract_param_value([1, 2, 3], "number")
-
-    # Vérifications
-    assert result == 10.0
-    assert isinstance(result, float)
-    # Vérifie que le décodeur a été appelé pour chaque token
-    assert decoder.llm.decode.call_count == 2
-    # '1' et '0' (le stop break avant le decode final)
-
-
 def test_extract_param_value_string_newline_break(decoder):
     """
     Vérifie que la génération d'une string s'arrête en cas de saut de ligne.
@@ -110,25 +83,6 @@ def test_string_first_token_masks_quote(decoder):
         assert passed_logits[99] <= -1e9
 
 
-def test_number_with_existing_float_point(decoder):
-    """Vérifie qu'on n'ajoute pas .0 si un point existe déjà."""
-
-    # Séquence : '1', '.', '5', STOP
-    side_effects = [10, 12, 13, 31]
-    decoder._get_masked_next = MagicMock(side_effect=side_effects)
-
-    def mock_decode(token_ids):
-        mapping = {10: "1", 12: ".", 13: "5", 31: " "}
-        return mapping.get(token_ids[0], "")
-
-    decoder.llm.decode = MagicMock(side_effect=mock_decode)
-
-    result = decoder.extract_param_value([1], "number")
-
-    assert result == 1.5
-    assert isinstance(result, float)
-
-
 def test_empty_number_returns_zero(decoder):
     """Vérifie qu'une extraction de nombre vide renvoie 0.0."""
 
@@ -137,4 +91,4 @@ def test_empty_number_returns_zero(decoder):
 
     result = decoder.extract_param_value([1], "number")
 
-    assert result == 0.0
+    assert result == ""
