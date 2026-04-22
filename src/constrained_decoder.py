@@ -4,30 +4,40 @@ import sys
 import numpy as np
 from typing import Any, List, Set
 from llm_sdk import Small_LLM_Model
-from src.models import FunctionDefinition, UserPrompt
+from src.models import FunctionDefinition
 from src.state_node import StateNode
-from src.prompt_processor import PromptProcessor
 
 NEG_INF: float = -1e11
 
 
 class ConstrainedDecoder:
-    def __init__(self, model_name: str = "Qwen/Qwen3-0.6B") -> None:
+    def __init__(self, model_name: str) -> None:
         self.llm = Small_LLM_Model(model_name=model_name)
-        self.prompt_processor = PromptProcessor(self)
 
-        vocab_path = self.llm.get_path_to_vocab_file()
-        with open(vocab_path, "r", encoding="utf-8") as f:
-            self.vocab = json.load(f)
+        self.vocab = self._load_vocab()
 
         self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
         self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
         self.quote_id = self.llm.encode('"')[0].tolist()[-1]
+        self.tokens_boolean = self._build_set(r'^(True|False)$')
+
+    def _load_vocab(self) -> dict:
+        """Charge le vocabulaire pour Qwen ou SmolLM2."""
+        try:
+            # Priorité au fichier JSON (Qwen / SDK)
+            with open(self.llm.get_path_to_vocab_file(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            # Repli sur le tokenizer interne (SmolLM2 / HF)
+            return self.llm.tokenizer.get_vocab()
 
     def _build_set(self, pattern: str) -> Set[int]:
         allowed = set()
         for tok_str, tid in self.vocab.items():
-            clean = tok_str.replace("\u0120", "").replace(" ", "").strip()
+            # Nettoyage : on enlève les espaces classiques (\s) 
+            # et les préfixes spécifiques à Qwen (\u0120) et SmolLM2 (Ġ)
+            clean = re.sub(r'[\s\u0120Ġ]+', '', tok_str)
+
             if clean and re.match(pattern, clean):
                 allowed.add(tid)
         return allowed
@@ -73,7 +83,6 @@ class ConstrainedDecoder:
             root.insert_name(self.llm.encode(f.name)[0].tolist(), f.name)
         curr = root
         current_context_ids = list(full_prompt_ids)
-        sys.stdout.write("\n  [NAME]: ")
         while True:
             allowed = set(curr.children.keys())
             # tant qu il y a des enfants
@@ -94,9 +103,6 @@ class ConstrainedDecoder:
                 # avec next on recupere le 1er(ici le seul élément)
                 chosen = next(iter(allowed))
 
-            sys.stdout.write(f"\033[94m{self.llm.decode([chosen])}\033[0m")
-            sys.stdout.flush()
-
             current_context_ids.append(chosen)
 
             curr = curr.children[chosen]
@@ -112,14 +118,15 @@ class ConstrainedDecoder:
         if p_type == "number":
             allowed = self._tokens_num | self._tokens_stop
             max_tokens = 20
-            color = "\033[92m"  # Vert
+        elif p_type == "boolean":
+            allowed = self.tokens_boolean | self._tokens_stop
+            max_tokens = 5
         else:
             allowed = None
             max_tokens = 200
-            color = "\033[93m"  # Jaune
 
         for i in range(max_tokens):
-            if p_type == "number":
+            if p_type == "number" or p_type == "boolean":
                 chosen = self._get_masked_next(current_context_ids, allowed)
             else:
                 logits = np.array(
@@ -146,7 +153,7 @@ class ConstrainedDecoder:
             # de "caractères d'arrêt", on valide la fin de la saisie.
             is_stop_token = (
                 (chosen == self.quote_id) or
-                (p_type == "number" and chosen in self._tokens_stop)
+                ((p_type == "number" or p_type == "boolean") and chosen in self._tokens_stop)
             )
             if is_stop_token:
                 if p_type == "number" and extracted_value:
@@ -154,7 +161,6 @@ class ConstrainedDecoder:
                         "." not in extracted_value
                         and "e" not in extracted_value.lower()
                     ):
-                        sys.stdout.write(f"{color}.0\033[0m")
                         extracted_value += ".0"
                 break
 
@@ -163,9 +169,6 @@ class ConstrainedDecoder:
             # Sécurité "anti_deraillage" pour le LLM
             if "\n" in decoded_token and i > 0:
                 break
-
-            sys.stdout.write(f"{color}{decoded_token}\033[0m")
-            sys.stdout.flush()
 
             extracted_value += decoded_token
             current_context_ids.append(chosen)
@@ -177,44 +180,3 @@ class ConstrainedDecoder:
                 return 0.0
 
         return extracted_value.strip()
-
-    def run(
-            self,
-            functions: List[FunctionDefinition],
-            user_prompts: List[UserPrompt],
-            output_path: str
-            ) -> None:
-        # model_dump : methode de Pydantic qui prend toutes les donnees
-        # stockees dans une instance de classe et les "decharge" dans un
-        # format standars (dico)
-        tools_list = [f.model_dump() for f in functions]
-        # recupere les IDs des tokens du system_prompt qui comprend
-        # les fonctions disponibles en format JSON
-        # on recupere le premier element de la matrice renvoyee
-        # (comme on envoie un seul
-        # system prompt). on le transforme em liste
-        # (souvent renvoie un tenseur py torch ou un tqblequ numpy)
-        system_prompt_ids = self.llm.encode(
-            f"System: Tool Extractor. "
-            f"Tools: {json.dumps(tools_list)}"
-            )[0].tolist()
-
-        results = []
-        for index, user_prompt in enumerate(user_prompts):
-            sys.stdout.write(f"\n[{index+1}/{len(user_prompts)}] "
-                             f"Prompt: {user_prompt.prompt[:50]}...")
-
-            res = self.prompt_processor.process(
-                user_prompt.prompt,
-                functions,
-                system_prompt_ids
-            )
-
-            results.append(res.model_dump())
-            sys.stdout.flush()
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            # Par défaut (True) : Python remplace tous les caractères
-            # non-anglais par des codes ("é" devient \u00e9)
-            # Avec False : Python écrit les caractères tels quels (en UTF-8).
-            json.dump(results, f, indent=4, ensure_ascii=False)

@@ -1,0 +1,62 @@
+[
+    {
+        "prompt": "Calculate the square root of 0",
+        "description": "Edge case: Minimum positive number"
+    },
+    {
+        "prompt": "What is the sum of 999999999 and 1?",
+        "description": "Edge case: Large numbers / Integer overflow risk"
+    },
+    {
+        "prompt": "Reverse the following string: ''",
+        "description": "Edge case: Empty string"
+    },
+    {
+        "prompt": "Reverse the string 'A man, a plan, a canal: Panama! 123 @#$'",
+        "description": "Edge case: Special characters and punctuation"
+    },
+    {
+        "prompt": "Replace all numbers in 'The temperature is -15.5 degrees' with 'cold'",
+        "description": "Edge case: Negative and floating point numbers in text"
+    },
+    {
+        "prompt": "Greet 12345",
+        "description": "Edge case: Wrong type (Number provided instead of Name string)"
+    },
+    {
+        "prompt": "Add 2 and 2 and then maybe say hello",
+        "description": "Edge case: Ambiguous prompt (Two potential functions, one primary)"
+    },
+    {
+        "prompt": "Use the regex '([a-z]+' to find words in 'hello world'",
+        "description": "Edge case: Invalid/Unclosed Regex (Tests your PromptProcessor fix)"
+    },
+    {
+        "prompt": "Substitute 'bad' with 'good' in 'This is bad, really bad'",
+        "description": "Edge case: Multiple parameters (source, regex, replacement)"
+    },
+    {
+        "prompt": "What is the sum of 'two' and 'three'?",
+        "description": "Edge case: Semantic type mismatch (Words instead of digits)"
+    },
+    {
+        "prompt": "Envoie un message urgent à Marie pour lui dire que j'arrive bientôt",
+        "expected_logic": "is_urgent should be True"
+    },
+    {
+        "prompt": "Mets une alarme à 08:30 appelée 'Sport'. Pas besoin de répétition.",
+        "expected_logic": "repeat_daily should be False"
+    },
+    {
+        "prompt": "Allume la lumière du salon à fond (1.0)",
+        "expected_logic": "power should be True, brightness 1.0"
+    },
+    {
+        "prompt": "Éteins la lumière de la cuisine",
+        "expected_logic": "power should be False"
+    },
+    {
+        "prompt": "Envoie un mail non urgent à Pierre : 'Le dossier est prêt'",
+        "expected_logic": "is_urgent should be False"
+    }
+]
