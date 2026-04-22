@@ -2,6 +2,7 @@ import sys
 import argparse
 from src.constrained_decoder import ConstrainedDecoder
 from src.load import Loader
+from src.prompt_processor import PromptProcessor
 from pathlib import Path
 
 
@@ -25,7 +26,9 @@ def main() -> None:
         help="Path to output file or directory"
     )
     args = parser.parse_args()
+
     loader = Loader()
+
     output_file_path = Path(args.output)
     output_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -35,8 +38,10 @@ def main() -> None:
     try:
         functions = loader.get_functions(args.functions_definition)
         prompts = loader.get_prompts(args.input)
+
         sys.stdout.write(f"Input: {len(prompts)} prompts loaded.\n")
         sys.stdout.flush()
+
     except Exception as e:
         sys.stderr.write(f"\033[91m[ERROR]\033[0m {e}\n")
         sys.stderr.flush()
@@ -45,9 +50,12 @@ def main() -> None:
     try:
         sys.stdout.write("Initializing LLM & Vocab Mapping...")
         sys.stdout.flush()
+
         constrained_decoder = ConstrainedDecoder()
+
         sys.stdout.write(" Done.\n")
         sys.stdout.flush()
+
     except Exception as e:
         sys.stderr.write(f"\n\033[91m[ERROR]\033[0m {e}\n")
         sys.stderr.flush()
@@ -60,7 +68,8 @@ def main() -> None:
             sys.stdout.write("-" * 50 + "\n")
             sys.stdout.flush()
 
-            constrained_decoder.run(functions, prompts, output_file_path)
+            processor = PromptProcessor(constrained_decoder)
+            processor.run(functions, prompts, output_file_path)
 
             sys.stdout.write(f"\n\033[92m[COMPLETED]\033[0m "
                              f"All results saved to: {output_file_path}\n")
