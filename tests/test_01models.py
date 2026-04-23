@@ -2,10 +2,8 @@ import pytest
 from pydantic import ValidationError
 from src.models import FunctionDefinition, UserPrompt, FunctionCallResult
 
-# =================================================================
-# 1. INPUT TESTS (Validation of function_definitions.json)
-# =================================================================
 
+# INPUT TESTS (Validation of function_definitions.json)
 
 class TestFunctionDefinition:
     """TestSuite for validating function definition structures."""
@@ -117,9 +115,7 @@ class TestFunctionDefinition:
             FunctionDefinition(**data)
 
 
-# =================================================================
-# 2. PROMPTS TESTS (Validation of function_calling_tests.json)
-# =================================================================
+# PROMPTS TESTS (Validation of function_calling_tests.json)
 class TestInputPrompts:
     """TestSuite for validating user prompt inputs."""
 
@@ -143,9 +139,7 @@ class TestInputPrompts:
         with pytest.raises(ValidationError):
             UserPrompt(prompt=None)
 
-# =================================================================
-# 3. OUTPUT TESTS (Validation of function_calling_results.json)
-# =================================================================
+# OUTPUT TESTS (Validation of function_calling_results.json)
 
 
 class TestOutputValidation:

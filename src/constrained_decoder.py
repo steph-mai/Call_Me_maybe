@@ -31,7 +31,7 @@ class ConstrainedDecoder:
     def _load_vocab(self) -> dict:
         """
         Loads vocabulary from JSON file (Qwen)
-        or from internal tokenizer (e.g., SmolLM2).
+        or from internal tokenizer (e.g., SmollM2).
         """
         try:
             with open(

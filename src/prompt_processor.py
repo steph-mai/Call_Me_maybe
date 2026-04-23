@@ -18,6 +18,7 @@ class PromptProcessor:
 
     def run(
             self,
+            
             functions: List[FunctionDefinition],
             user_prompts: List[UserPrompt],
             output_path: str | Path
