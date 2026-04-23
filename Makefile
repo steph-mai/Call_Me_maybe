@@ -16,9 +16,12 @@ debug:
 
 clean:
 	@echo "Remove temporary files or caches"
-	rm -rf .venv .uv_cache .mypy_cache .pytest_cache
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-
+	-rm -rf .mypy_cache
+	-rm -rf .pytest_cache
+	-rm -rf .uv_cache
+	@find . -type d -name "__pycache__" -exec rm -rf {} +
+	@find . -type f -name "*.py[co]" -delete
+	@echo "Cleaning complete."
 lint:
 	@echo "--- Running Flake8 ---"
 	@uv run flake8 . --exclude .venv,llm_sdk

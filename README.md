@@ -10,9 +10,9 @@
 # Call Me Maybe - LLM Function Calling
 
 ![Language](https://img.shields.io/badge/Language-python-blue)
-![Static Badge](https://img.shields.io/badge/AI-red)
-![Static Badge](https://img.shields.io/badge/parsing-red)
-![Static Badge](https://img.shields.io/badge/LLM-red)
+![Static Badge](https://img.shields.io/badge/AI-pink)
+![Static Badge](https://img.shields.io/badge/parsing-pink)
+![Static Badge](https://img.shields.io/badge/LLM-pink)
 
 ![Tag](https://img.shields.io/badge/Unit_tests-green)
 ## 🔵 Description
@@ -46,8 +46,6 @@ Using Pydantic models after generation, an "Advanced Recovery" system performs f
 - Python 3.10 or later.
 
 - uv (high-performance Python package manager).
-
-- The llm_sdk package must be placed in the project root (at the same level as the src/ directory).
 
 ### ✳️ Installation
 
@@ -326,7 +324,7 @@ uv run python -m src --input data/input/function_calling_tests.json
 
 The program generates the following structured JSON in data/output/function_calls.json. Notice how the "22.5" has been correctly extracted as a float and the room name is isolated:
 
-```bash
+```json
 JSON
 [
   {

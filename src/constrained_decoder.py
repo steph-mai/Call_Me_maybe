@@ -173,12 +173,12 @@ class ConstrainedDecoder:
                  chosen in self._tokens_stop)
             )
             if is_stop_token:
-                if p_type == "number" and extracted_value:
-                    if (
-                        "." not in extracted_value
-                        and "e" not in extracted_value.lower()
-                    ):
-                        extracted_value += ".0"
+                # if p_type == "number" and extracted_value:
+                #     if (
+                #         "." not in extracted_value
+                #         and "e" not in extracted_value.lower()
+                #     ):
+                #         extracted_value += ".0"
                 break
 
             decoded_token = self.llm.decode([chosen])
@@ -190,4 +190,15 @@ class ConstrainedDecoder:
             extracted_value += decoded_token
             prompt_sequence.append(chosen)
 
-        return extracted_value.strip()
+        final_str = extracted_value.strip()
+
+        if p_type == "number":
+            try:
+                return float(final_str)
+            except ValueError:
+                return 0.0
+
+        if p_type == "boolean":
+            return final_str.lower() in ["true", "1", "yes"]
+
+        return final_str
