@@ -28,6 +28,7 @@ def decoder():
 
         return obj
 
+
 def test_extract_param_value_string_newline_break(decoder):
     """
     Checks that string generation stops when a newline character is inserted.
@@ -78,4 +79,20 @@ def test_empty_number_returns_zero(decoder):
 
     result = decoder.extract_param_value([1], "number")
 
-    assert result == ""
+    assert result == 0.0
+
+
+def test_number_with_existing_float_point(decoder):
+    side_effects = [10, 12, 13, 31]
+    decoder._get_masked_next = MagicMock(side_effect=side_effects)
+
+    def mock_decode(token_ids):
+        mapping = {10: "1", 12: ".", 13: "5", 31: " "}
+        return mapping.get(token_ids[0], "")
+
+    decoder.llm.decode = MagicMock(side_effect=mock_decode)
+
+    result = decoder.extract_param_value([1], "number")
+
+    assert result == 1.5
+    assert isinstance(result, float)
