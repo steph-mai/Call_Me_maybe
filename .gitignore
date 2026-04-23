@@ -1,0 +1,23 @@
+#installation and environment
+.venv/
+.uv_cache/
+
+#python
+__pycache__
+.mypy_cache
+.pytest_cache
+*.py[cod]
+
+#IA
+hf_cache/
+hf_home/
+models/
+*.bin
+*.safetensors
+
+#IDE
+.vscode/
+
+output/
+function_calling_results.json
+

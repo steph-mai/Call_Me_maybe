@@ -1,0 +1,65 @@
+[
+  {
+    "name": "fn_add_numbers",
+    "description": "Add two numbers together and return their sum.",
+    "parameters": {
+      "a": { "type": "number" },
+      "b": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_greet",
+    "description": "Generate a greeting message for a person by name.",
+    "parameters": {
+      "name": { "type": "string" }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_reverse_string",
+    "description": "Reverse a string and return the reversed result.",
+    "parameters": {
+      "s": { "type": "string" }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_get_square_root",
+    "description": "Calculate the square root of a number.",
+    "parameters": {
+      "a": { "type": "number" }
+    },
+    "returns": { "type": "number" }
+  },
+  {
+    "name": "fn_substitute_string_with_regex",
+    "description": "Substitute parts of a string using a regular expression.",
+    "parameters": {
+      "source_string": { "type": "string" },
+      "regex": { "type": "string" },
+      "replacement": { "type": "string" }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_send_message",
+    "description": "Envoie un message avec un niveau d'urgence.",
+    "parameters": {
+      "recipient": { "type": "string" },
+      "content": { "type": "string" },
+      "is_urgent": { "type": "boolean" }
+    },
+    "returns": { "type": "string" }
+  },
+  {
+    "name": "fn_control_light",
+    "description": "Allume ou éteint une lampe avec une intensité précise.",
+    "parameters": {
+      "room": { "type": "string" },
+      "power": { "type": "boolean" },
+      "brightness": { "type": "number" }
+    },
+    "returns": { "type": "string" }
+  }
+]
