@@ -163,7 +163,7 @@ class PromptProcessor:
         if isinstance(raw_value, str):
             val = raw_value.replace('"', '').strip()
 
-            if p_name == "regex":
+            if p_type == "string":
                 for opening, closing in [('(', ')'), ('[', ']')]:
                     while val.count(opening) > val.count(closing):
                         val += closing
