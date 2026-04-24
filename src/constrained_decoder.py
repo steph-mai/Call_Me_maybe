@@ -21,11 +21,11 @@ class ConstrainedDecoder:
         """
         self.llm = Small_LLM_Model(model_name=model_name)
 
-        self.vocab = self._load_vocab()
+        vocab = self._load_vocab()
 
-        self._tokens_num = self._build_set(r'^[0-9.\-eE]+$')
-        self._tokens_stop = self._build_set(r'^[,\}\]:\s\n\t]+$')
-        self.tokens_boolean = self._build_set(r'^(True|False)$')
+        self._tokens_num = self._built_set_with_vocab(vocab, r'^[0-9.\-eE]+$')
+        self._tokens_stop = self._built_set_with_vocab(vocab, r'^[,\}\]:\s\n\t]+$')
+        self.tokens_boolean = self._built_set_with_vocab(vocab, r'^(True|False)$')
         self.quote_id = self.llm.encode('"')[0].tolist()[-1]
 
     def _load_vocab(self) -> dict:
@@ -38,18 +38,14 @@ class ConstrainedDecoder:
                 self.llm.get_path_to_vocab_file(), "r", encoding="utf-8"
             ) as f:
                 data = json.load(f)
-                # json.load returns Any
-                # Use cast to transform Any en Dict
                 return cast(Dict[str, int], data)
         except Exception:
             return cast(Dict[str, int], self.llm.tokenizer.get_vocab())
 
-    def _build_set(self, pattern: str) -> Set[int]:
+    def _built_set_with_vocab(self, vocab: dict, pattern: str) -> Set[int]:
         """Filters vocabulary to find token IDs matching a regex pattern."""
         allowed = set()
-        for tok_str, tid in self.vocab.items():
-            # Clean control characters and model-specific prefixes
-            # (Ġ ou \u0120)
+        for tok_str, tid in vocab.items():
             clean = re.sub(r'[\s\u0120Ġ]+', '', tok_str)
 
             if clean and re.match(pattern, clean):
@@ -69,18 +65,12 @@ class ConstrainedDecoder:
             self.llm.get_logits_from_input_ids(ids),
             dtype=np.float32
         )
-        # The model returns a tensor of scores. We use 'shape'
-        # to check its dimensions and isolate the 1D vector (logits)
-        # of the last token for the next prediction.
         while len(logits.shape) > 1:
             logits = logits[-1]
 
-        # Apply the mask: default to negative infinity
         if allowed is not None:
             mask = np.full(logits.shape, NEG_INF, dtype=np.float32)
 
-            # len(mask) is the vocabulary size. This check ensures the token ID
-            # is within the valid range of the model's index.
             for tid in allowed:
                 if tid < len(mask):
                     mask[tid] = logits[tid]
@@ -98,29 +88,22 @@ class ConstrainedDecoder:
         """
         trie_root = StateNode()
 
-        # Initialize the prefix tree with all possible function names
         for f in functions:
             name_tokens = self.llm.encode(f.name)[0].tolist()
             trie_root.insert_name(name_tokens, f.name)
 
         current_node = trie_root
-        # sequence starts with the prompt and grows as tokens are predicted
         prompt_sequence = list(full_prompt_ids)
 
         while True:
-            # The allowed tokens are the children of the current node.
             allowed = set(current_node.children.keys())
 
             if not allowed:
                 break
 
-            # If multiple paths exist, mask the logits; otherwise,
-            # take the only choice
             if len(allowed) > 1:
                 chosen = self._get_masked_next(prompt_sequence, allowed)
             else:
-                # Convert the set to an iterable and retrieve the first
-                # (and only) element
                 chosen = next(iter(allowed))
 
             prompt_sequence.append(chosen)
@@ -162,12 +145,9 @@ class ConstrainedDecoder:
                     self.llm.get_logits_from_input_ids(prompt_sequence),
                     dtype=np.float32
                 )
-                # Reduce the tensor (Batch, Sequence, Vocab) to a 1D vector
-                # of the last token's raw scores
                 while len(logits.shape) > 1:
                     logits = logits[-1]
 
-                # Prevent immediate closing of string
                 if i == 0:
                     logits[self.quote_id] = NEG_INF
                 chosen = int(np.argmax(logits))
@@ -181,7 +161,6 @@ class ConstrainedDecoder:
 
             decoded_token = self.llm.decode([chosen])
 
-            # Safety break to prevent hallucinations
             if "\n" in decoded_token and i > 0:
                 break
 

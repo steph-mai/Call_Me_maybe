@@ -13,7 +13,6 @@ class PromptProcessor:
     """
     def __init__(self, decoder: ConstrainedDecoder) -> None:
         self.decoder = decoder
-        # Cache to store results and avoid redundant LLM calls
         self._cache: Dict[str, FunctionCallResult] = {}
 
     def run(
@@ -27,8 +26,6 @@ class PromptProcessor:
         to a JSON file.
         Includes caching logic to skip already processed prompts.
         """
-        # Convert Pydantic models to standard dictionaries
-        # using the pydantic method 'model_dump'
         tools_list = [f.model_dump() for f in functions]
 
         system_prompt: str = (
@@ -36,7 +33,6 @@ class PromptProcessor:
             f"Tools: {json.dumps(tools_list)}"
         )
 
-        # Tokenize the system prompt containing available tools
         system_prompt_ids = self.decoder.llm.encode(
             system_prompt
             )[0].tolist()
@@ -46,7 +42,6 @@ class PromptProcessor:
         for index, user_prompt in enumerate(user_prompts):
             prompt_text = user_prompt.prompt
 
-            # Cache check
             if prompt_text in self._cache:
                 result = self._cache[prompt_text]
                 sys.stdout.write(
@@ -64,12 +59,10 @@ class PromptProcessor:
                 system_prompt_ids
             )
 
-            # Store result in cache
             self._cache[prompt_text] = res
 
             results.append(res)
 
-        # Save results to file
         output_data = [r.model_dump() for r in results]
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, indent=4, ensure_ascii=False)
@@ -96,7 +89,6 @@ class PromptProcessor:
 
         sys.stdout.write(f"\n  [NAME]: \033[94m{selected_name}\033[0m")
 
-        # Retrieve the matching function definition
         selected_function_def: Optional[FunctionDefinition] = None
         for f in functions:
             if f.name == selected_name:
@@ -109,7 +101,6 @@ class PromptProcessor:
 
         final_params: dict[str, float | int | bool | str] = {}
 
-        # Iterative parameter extraction
         for p_name, p_info in selected_function_def.parameters.items():
             is_numeric = (
                 p_name == "number" or
@@ -124,7 +115,6 @@ class PromptProcessor:
                 f"{p_name}="
             )
 
-            # Pre-append a quote for string types to guide the model
             if p_info.type == "string":
                 instruction += '"'
 
@@ -133,12 +123,10 @@ class PromptProcessor:
                 + self.decoder.llm.encode(instruction)[0].tolist()
             )
 
-            # Constrained extraction based on parameter type
             raw_value = self.decoder.extract_param_value(
                 full_prompt_ids,
                 p_info.type)
 
-            # Post-processing and error recovery
             final_value = self._advanced_recovery(
                 p_name, p_info.type,
                 raw_value)
