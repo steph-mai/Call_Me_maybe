@@ -2,7 +2,7 @@ import json
 import re
 import numpy as np
 from typing import Any, List, Set, Dict, cast
-from llm_sdk import Small_LLM_Model  # type: ignore
+from llm_sdk import Small_LLM_Model
 from src.models import FunctionDefinition
 from src.state_node import StateNode
 
@@ -136,11 +136,17 @@ class ConstrainedDecoder:
         """
         prompt_sequence = list(ids)
         extracted_value = ""
+        is_numeric = (
+            p_type == "number" or
+            p_type == "float" or
+            p_type == "integer"
+        )
+        is_boolean = p_type == "boolean"
 
-        if p_type == "number":
+        if is_numeric:
             allowed = self._tokens_num | self._tokens_stop
-            max_tokens = 20
-        elif p_type == "boolean":
+            max_tokens = 30
+        elif is_boolean:
             allowed = self.tokens_boolean | self._tokens_stop
             max_tokens = 5
         else:
@@ -148,7 +154,7 @@ class ConstrainedDecoder:
             max_tokens = 200
 
         for i in range(max_tokens):
-            if p_type == "number" or p_type == "boolean":
+            if is_numeric or is_boolean:
                 chosen = self._get_masked_next(prompt_sequence, allowed)
 
             else:
@@ -166,20 +172,12 @@ class ConstrainedDecoder:
                     logits[self.quote_id] = NEG_INF
                 chosen = int(np.argmax(logits))
 
-            # Stop if a termination token is found
-            is_stop_token = (
-                (chosen == self.quote_id) or
-                ((p_type == "number" or p_type == "boolean") and
-                 chosen in self._tokens_stop)
-            )
-            if is_stop_token:
-                # if p_type == "number" and extracted_value:
-                #     if (
-                #         "." not in extracted_value
-                #         and "e" not in extracted_value.lower()
-                #     ):
-                #         extracted_value += ".0"
-                break
+            if p_type == "string":
+                if chosen == self.quote_id:
+                    break
+            elif is_numeric or is_boolean:
+                if chosen in self._tokens_stop:
+                    break
 
             decoded_token = self.llm.decode([chosen])
 
@@ -197,6 +195,12 @@ class ConstrainedDecoder:
                 return float(final_str)
             except ValueError:
                 return 0.0
+
+        if p_type == "integer":
+            try:
+                return int(final_str)
+            except ValueError:
+                return 0
 
         if p_type == "boolean":
             return final_str.lower() in ["true", "1", "yes"]

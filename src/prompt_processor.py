@@ -111,6 +111,12 @@ class PromptProcessor:
 
         # Iterative parameter extraction
         for p_name, p_info in selected_function_def.parameters.items():
+            is_numeric = (
+                p_name == "number" or
+                p_name == "float" or
+                p_name == "integer"
+            )
+            is_bool = p_name == "boolean"
 
             instruction = (
                 f"\nTask: {user_prompt}\n"
@@ -139,9 +145,9 @@ class PromptProcessor:
 
             final_params[p_name] = final_value
 
-            if p_info.type == "number":
+            if p_info.type == is_numeric:
                 color = "\033[92m"
-            elif p_info.type == "boolean":
+            elif p_info.type == is_bool:
                 color = "\033[95m"
             else:
                 color = "\033[93m"
