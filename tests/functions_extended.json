@@ -44,7 +44,7 @@
   },
   {
     "name": "fn_send_message",
-    "description": "Envoie un message avec un niveau d'urgence.",
+    "description": "Send a message with a level of emergency.",
     "parameters": {
       "recipient": { "type": "string" },
       "content": { "type": "string" },
@@ -54,7 +54,7 @@
   },
   {
     "name": "fn_control_light",
-    "description": "Allume ou éteint une lampe avec une intensité précise.",
+    "description": "Turns a lamp on or off with a precise intensity.",
     "parameters": {
       "room": { "type": "string" },
       "power": { "type": "boolean" },
