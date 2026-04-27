@@ -24,15 +24,15 @@ clean:
 	@echo "Cleaning complete."
 lint:
 	@echo "--- Running Flake8 ---"
-	@uv run flake8 . --exclude .venv,llm_sdk
+	@uv run flake8 . --exclude .venv,llm_sdk,moulinette
 	@echo "--- Running MyPy ---"
-	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/)"
+	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/|moulinette/)"
 
 lint-strict:
 	@echo "--- Running Flake8 ---"
-	@uv run flake8 . --exclude .venv,llm_sdk 
+	@uv run flake8 . --exclude .venv,llm_sdk,moulinette
 	@echo "--- Running MyPy ---"
-	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/)"
+	@uv run mypy . $(MYPY_FLAGS) --exclude "(tests/|llm_sdk/|moulinette/)"
 
 test:
 	@echo "Launching the entire suite of tests..."

@@ -2,7 +2,7 @@ import json
 import re
 import numpy as np
 from typing import Any, List, Set, Dict, cast
-from llm_sdk import Small_LLM_Model
+from llm_sdk import Small_LLM_Model  # type: ignore
 from src.models import FunctionDefinition
 from src.state_node import StateNode
 
@@ -23,9 +23,15 @@ class ConstrainedDecoder:
 
         vocab = self._load_vocab()
 
-        self._tokens_num = self._built_set_with_vocab(vocab, r'^[0-9.\-eE]+$')
-        self._tokens_stop = self._built_set_with_vocab(vocab, r'^[,\}\]:\s\n\t]+$')
-        self.tokens_boolean = self._built_set_with_vocab(vocab, r'^(True|False)$')
+        self._tokens_num = self._built_set_with_vocab(
+            vocab, r'^[0-9.\-eE]+$'
+            )
+        self._tokens_stop = self._built_set_with_vocab(
+            vocab, r'^[,\}\]:\s\n\t]+$'
+            )
+        self.tokens_boolean = self._built_set_with_vocab(
+            vocab, r'^(True|False)$'
+            )
         self.quote_id = self.llm.encode('"')[0].tolist()[-1]
 
     def _load_vocab(self) -> dict:

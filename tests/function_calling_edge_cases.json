@@ -40,23 +40,23 @@
         "description": "Edge case: Semantic type mismatch (Words instead of digits)"
     },
     {
-        "prompt": "Envoie un message urgent à Marie pour lui dire que j'arrive bientôt",
+        "prompt": "Send an urgent message to Marie to tell her I'll be there soon.",
         "expected_logic": "is_urgent should be True"
     },
     {
-        "prompt": "Mets une alarme à 08:30 appelée 'Sport'. Pas besoin de répétition.",
+        "prompt": "Set an alarm for 8:30 called 'Sport'. No need to repeat.",
         "expected_logic": "repeat_daily should be False"
     },
     {
-        "prompt": "Allume la lumière du salon à fond (1.0)",
+        "prompt": "Turn the living room light on full blast. (1.0)",
         "expected_logic": "power should be True, brightness 1.0"
     },
     {
-        "prompt": "Éteins la lumière de la cuisine",
+        "prompt": "Turn off the kitchen light",
         "expected_logic": "power should be False"
     },
     {
-        "prompt": "Envoie un mail non urgent à Pierre : 'Le dossier est prêt'",
+        "prompt": "Send a non urgent mail to Peter : 'The file is ready'.",
         "expected_logic": "is_urgent should be False"
     }
 ]
