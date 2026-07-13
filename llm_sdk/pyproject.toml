@@ -5,7 +5,7 @@ description = "LLM SDK for local model inference"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
-    "transformers>=4.40.0",
+    "transformers>=5.5.0",
     "huggingface-hub>=0.20.0",
 ]
 
